@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "running-mate",
+    "name": "같이뛰어",
     "slug": "running-mate",
+    "scheme": "runningmate",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
