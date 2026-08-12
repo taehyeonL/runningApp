@@ -1,0 +1,4 @@
+project_id = "running-mate"
+
+[functions.detect-co-running]
+verify_jwt = false

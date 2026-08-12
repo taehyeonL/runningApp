@@ -8,7 +8,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,6 +26,20 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "러닝 거리와 페이스를 기록하기 위해 달리는 동안 위치를 사용합니다.",
+          "locationAlwaysAndWhenInUsePermission": "화면이 꺼져도 러닝 기록을 이어가기 위해 위치를 사용합니다. 정확한 경로는 다른 사용자에게 공개하지 않습니다.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ]
   }
 }
