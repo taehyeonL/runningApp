@@ -82,6 +82,8 @@ OAuth를 실제로 연결하려면 다음 설정이 필요합니다.
 
 | 파일 | 역할 |
 | --- | --- |
+| [제품 기획서](docs/product-spec.md) | 러닝 우선·위치 비공개·상호 동의 원칙과 전체 제품 요구사항 |
+| [작업 목록](TO-DO.md) | 구현 완료 상태와 다음 우선순위 |
 | [App.tsx](App.tsx) | 인증 세션·러닝 수명주기·화면 전환을 조정하는 앱 진입점 |
 | [src/navigation/routes.ts](src/navigation/routes.ts) | 화면·하단 탭 타입과 앱 셸 표시 규칙 |
 | [src/screens](src/screens) | 인증·온보딩, 실제 러닝, 발견·요청·프로필·신고 화면 |
