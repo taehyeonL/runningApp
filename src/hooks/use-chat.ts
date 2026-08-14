@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   fetchChatThreads,
@@ -10,6 +10,7 @@ import {
   type ChatThread,
   type ReportReason,
 } from '../features/chat/chat-api';
+import { subscribeToChat } from '../features/chat/chat-realtime';
 import { supabase } from '../lib/supabase';
 
 export function useChat(userId?: string) {
@@ -40,6 +41,39 @@ export function useChat(userId?: string) {
   useEffect(() => {
     void refreshThreads();
   }, [refreshThreads]);
+
+  // 열려 있는 대화를 구독 콜백에서 읽어야 하는데, openPartnerId를 의존성에
+  // 넣으면 대화를 열 때마다 구독을 끊고 다시 맺게 된다. ref로 최신 값만 본다.
+  const openPartnerRef = useRef<string | null>(null);
+  openPartnerRef.current = openPartnerId;
+
+  useEffect(() => {
+    if (!userId || !supabase) return;
+
+    return subscribeToChat(userId, {
+      onIncoming: (message) => {
+        const isOpenThread = openPartnerRef.current === message.senderId;
+        if (isOpenThread) {
+          // 이미 있는 메시지면 다시 넣지 않는다. 직접 보낸 뒤의 재조회와
+          // 실시간 이벤트가 겹칠 수 있다.
+          setMessages((current) => (
+            current.some((item) => item.id === message.id)
+              ? current
+              : [...current, message]
+          ));
+          // 보고 있는 대화이므로 바로 읽음 처리한다. 실패해도 화면은 유지한다.
+          void markMessagesRead(message.senderId).catch(() => 0);
+        }
+        // 목록의 미리보기와 안 읽음 배지는 서버 계산값을 그대로 따른다.
+        void refreshThreads();
+      },
+      onReadReceipt: (message) => {
+        setMessages((current) => current.map((item) => (
+          item.id === message.id ? { ...item, readAt: message.readAt } : item
+        )));
+      },
+    });
+  }, [refreshThreads, userId]);
 
   // 대화를 열면 받은 메시지를 읽음으로 표시한다. 실패해도 대화는 보여줘야
   // 하므로 읽음 처리 오류로 화면을 막지는 않는다.

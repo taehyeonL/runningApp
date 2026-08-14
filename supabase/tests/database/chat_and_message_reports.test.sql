@@ -24,6 +24,39 @@ select ok(
   not has_table_privilege('authenticated', 'private.message_push_outbox', 'SELECT'),
   'the push outbox is server-only'
 );
+
+-- 실시간 갱신은 별도의 읽기 경로다. postgres_changes는 구독자의 JWT로 해당
+-- 테이블의 RLS를 평가하므로, RLS가 꺼지거나 정책이 사라지면 실시간 경로로
+-- 남의 메시지가 새어 나간다. 발행 등록과 RLS를 함께 고정한다.
+select ok(
+  exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public' and tablename = 'messages'
+  ),
+  'messages are published for realtime so conversations update live'
+);
+select ok(
+  (select relrowsecurity from pg_class c
+     join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'messages'),
+  'realtime never publishes a table whose row security is off'
+);
+select ok(
+  (select relreplident from pg_class c
+     join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'messages') = 'f',
+  'read receipts reach the sender, which needs the full old row for RLS'
+);
+-- 원본 GPS가 실시간으로 흘러나가는 일은 없어야 한다.
+select is(
+  (select coalesce(string_agg(tablename, ', ' order by tablename), '')
+     from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public'
+      and tablename in ('location_points', 'session_route_summaries', 'running_sessions')),
+  '',
+  'location data is never streamed over realtime'
+);
 select ok(
   has_function_privilege('service_role', 'public.worker_claim_message_pushes(integer)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.worker_claim_message_pushes(integer)', 'EXECUTE'),
