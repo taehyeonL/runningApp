@@ -223,5 +223,83 @@ select is(
 );
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- 동의를 철회한 GPS로는 파생 데이터를 만들지 않는다.
+-- ---------------------------------------------------------------------------
+-- 보관 만료 파기는 격자 요약을 남기는 게 맞지만, 위치 동의 철회는 삭제여야지
+-- 변환이어서는 안 된다. 두 경로가 같은 파기 함수를 타므로 갈라지는지 확인한다.
+insert into public.consent_records (user_id, consent_type, policy_version, granted, captured_at)
+select '00000000-0000-0000-0000-000000000301', t, 'retention-v1', true, now() - interval '7 days'
+  from (values ('adult_confirmation'), ('terms'), ('privacy'), ('location')) v(t);
+
+insert into public.running_sessions (
+  id, user_id, status, source_record_id, started_at, ended_at,
+  duration_seconds, distance_meters, raw_points_purge_after
+)
+values (
+  '00000000-0000-0000-0000-0000000b0005', '00000000-0000-0000-0000-000000000301',
+  'completed', 'retention-withdrawn', now() - interval '2 days',
+  now() - interval '2 days' + interval '20 minutes', 1200, 2226, now() + interval '20 days'
+);
+insert into public.location_points (session_id, user_id, recorded_at, latitude, longitude, accuracy_meters)
+select '00000000-0000-0000-0000-0000000b0005', '00000000-0000-0000-0000-000000000301',
+       now() - interval '2 days' + make_interval(secs => i * 30),
+       38.1000 + i * 0.0005, 128.0000, 8
+  from generate_series(0, 40) as i;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000301', true);
+set local role authenticated;
+select ok(
+  public.withdraw_location_consent('retention-v1') >= 1,
+  'withdrawing location consent schedules the raw GPS for deletion'
+);
+reset role;
+
+-- 철회 시점에 이미 만들어져 있던 파생 위치 데이터도 사라져야 한다.
+select is(
+  (select count(*)::integer from public.session_route_summaries
+    where user_id = '00000000-0000-0000-0000-000000000301'),
+  0,
+  'withdrawing location consent deletes grid summaries built earlier'
+);
+select is(
+  (select count(*)::integer from private.user_location_anchors
+    where user_id = '00000000-0000-0000-0000-000000000301'),
+  0,
+  'withdrawing location consent forgets the home and work anchors'
+);
+
+select ok(
+  public.worker_purge_expired_location_points(10) > 0,
+  'the purge job deletes the raw GPS of the withdrawn session'
+);
+select is(
+  (select count(*)::integer from public.location_points
+    where session_id = '00000000-0000-0000-0000-0000000b0005'),
+  0,
+  'no raw GPS remains after withdrawal'
+);
+-- 이것이 이 테스트의 핵심이다. 철회한 GPS에서 격자 요약이 새로 생기면
+-- 사용자는 동의를 철회했는데도 위치 파생 데이터가 계속 만들어지는 셈이다.
+select is(
+  (select count(*)::integer from public.session_route_summaries
+    where user_id = '00000000-0000-0000-0000-000000000301'),
+  0,
+  'purging withdrawn GPS never creates a new grid summary from it'
+);
+select is(
+  (select count(*)::integer from private.user_location_anchors
+    where user_id = '00000000-0000-0000-0000-000000000301'),
+  0,
+  'purging withdrawn GPS never records a new living-area anchor'
+);
+-- 위치가 아닌 기록은 사용자의 자산이므로 남는다.
+select is(
+  (select distance_meters::integer from public.running_sessions
+    where id = '00000000-0000-0000-0000-0000000b0005'),
+  2226,
+  'the run itself survives the withdrawal, only the location data goes'
+);
+
 select * from finish();
 rollback;
