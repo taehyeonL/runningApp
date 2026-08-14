@@ -23,7 +23,7 @@
 - [x] OAuth PKCE deep-link 콜백, Expo SecureStore 세션 저장·복원·foreground 갱신 구현
 - [ ] Apple / Kakao / Google 실제 provider client ID/secret 및 redirect allow list 설정과 실계정 검증
 - [x] 온보딩 정보를 `profiles`, `consent_records`에 저장하는 인증 후 플로우 구현
-- [ ] 계정 삭제, 위치 동의 철회, 러닝 로그 개별 삭제/공개 범위 변경 API와 UI 구현
+- [x] 계정 삭제, 위치 동의 철회, 러닝 로그 개별 삭제/공개 범위 변경 API와 UI 구현
 - [x] 차단 시 후보·요청·채팅을 즉시 제외하는 DB 정책과 pgTAP 통합 테스트
 - [x] 요청 일일 한도·쿨다운·양방향 중복 방지 및 단방향 상태 머신 구현
 - [x] 요청 수락·거절·취소 목록을 실제 앱 UI와 데이터에 연결

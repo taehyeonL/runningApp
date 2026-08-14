@@ -181,34 +181,39 @@ select throws_ok(
   $$update public.profiles set completed_run_count = 999 where id = auth.uid()$$
 );
 
-insert into public.running_sessions (
-  id, user_id, source, source_record_id, started_at, visibility
-) values (
-  '20000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000001',
-  'phone', 'pg-tap-run-a', '2026-08-12T00:00:00Z', 'private'
+-- 세션 id는 서버가 발급한다. 클라이언트는 재시도 멱등성을 위해
+-- source_record_id만 정하고, unique(user_id, source, source_record_id)가
+-- 중복 생성을 막는다.
+select lives_ok(
+  $$
+    insert into public.running_sessions (
+      user_id, source, source_record_id, started_at, visibility
+    ) values (
+      auth.uid(), 'phone', 'pg-tap-run-a', '2026-08-12T00:00:00Z', 'private'
+    )
+  $$,
+  'the owner can start a recording session'
 );
 
 insert into public.location_points (
   session_id, user_id, recorded_at, latitude, longitude, accuracy_meters
-) values (
-  '20000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000001',
-  '2026-08-12T00:00:05Z', 37.5, 127.0, 8
-);
+)
+select id, auth.uid(), '2026-08-12T00:00:05Z', 37.5, 127.0, 8
+  from public.running_sessions where source_record_id = 'pg-tap-run-a';
 insert into public.location_points (
   session_id, user_id, recorded_at, latitude, longitude, accuracy_meters
-) values (
-  '20000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000001',
-  '2026-08-12T00:00:05Z', 37.5, 127.0, 8
-) on conflict (session_id, recorded_at) do nothing;
+)
+select id, auth.uid(), '2026-08-12T00:00:05Z', 37.5, 127.0, 8
+  from public.running_sessions where source_record_id = 'pg-tap-run-a'
+on conflict (session_id, recorded_at) do nothing;
 
 select is(
   (
     select count(*)::integer
       from public.location_points
-     where session_id = '20000000-0000-0000-0000-000000000001'
+     where session_id = (
+       select id from public.running_sessions where source_record_id = 'pg-tap-run-a'
+     )
   ),
   1,
   'a retried GPS point is idempotent'
@@ -216,7 +221,7 @@ select is(
 
 select ok(
   public.submit_running_session(
-    '20000000-0000-0000-0000-000000000001',
+    (select id from public.running_sessions where source_record_id = 'pg-tap-run-a'),
     '2026-08-12T00:01:00Z',
     60, 100, 600, 60, null, null,
     '{"total_points":1,"accepted_points":1}'::jsonb,
@@ -228,7 +233,7 @@ select is(
   (
     select status::text
       from public.running_sessions
-     where id = '20000000-0000-0000-0000-000000000001'
+     where source_record_id = 'pg-tap-run-a'
   ),
   'processing',
   'submission moves the session to processing, not client-completed'

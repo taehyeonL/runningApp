@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 
+import { POLICY_VERSION } from './policy';
 import { supabase } from './supabase';
 
 export type OnboardingInput = {
@@ -8,7 +9,6 @@ export type OnboardingInput = {
   visibility: '비공개' | '친구 공개' | '프로필 공개' | '매칭 공개';
 };
 
-const POLICY_VERSION = 'mvp-2026-08-12';
 const visibilityValues = {
   비공개: 'private',
   '친구 공개': 'friends',

@@ -9,6 +9,14 @@ export const visibilityLabels: Record<RunListItem['visibility'], VisibilityLabel
   matching: '매칭 공개',
 };
 
+export const visibilityOptions = Object.values(visibilityLabels);
+
+export function visibilityFromLabel(label: string): RunListItem['visibility'] {
+  const entry = Object.entries(visibilityLabels)
+    .find(([, value]) => value === label);
+  return (entry?.[0] as RunListItem['visibility']) ?? 'private';
+}
+
 export function formatDistance(distanceMeters: number) {
   return (distanceMeters / 1000).toFixed(2);
 }

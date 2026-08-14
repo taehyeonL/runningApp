@@ -2,9 +2,11 @@ import * as Linking from 'expo-linking';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Platform } from 'react-native';
 
+import { deleteRun, setRunVisibility } from './src/features/account/account-api';
 import type { RunListItem } from './src/features/running/run-types';
 import type { DiscoveryCandidate, RequestTemplateKey } from './src/features/social/social-types';
 import { useAuthSession } from './src/hooks/use-auth-session';
+import { usePrivacy } from './src/hooks/use-privacy';
 import { useRunRecorder } from './src/hooks/use-run-recorder';
 import { useSocial } from './src/hooks/use-social';
 import {
@@ -17,6 +19,7 @@ import {
 import { hasCompletedOnboarding, saveOnboarding } from './src/lib/onboarding';
 import { hasSupabaseConfig } from './src/lib/supabase';
 import { screensWithBottomNavigation, type Screen } from './src/navigation/routes';
+import { AccountScreen } from './src/screens/account-screens';
 import { LoginScreen, OnboardingScreen, type OnboardingSubmission } from './src/screens/auth-screens';
 import { HomeScreen, RunCompleteScreen, RunScreen } from './src/screens/running-screens';
 import { DiscoverScreen, ProfileScreen, ReportScreen, RequestScreen } from './src/screens/social-screens';
@@ -26,6 +29,7 @@ export default function App() {
   const { session, isLoading: isSessionLoading, error: sessionError } = useAuthSession();
   const runRecorder = useRunRecorder(session?.user.id);
   const social = useSocial(session?.user.id);
+  const privacy = usePrivacy(session?.user.id);
   const callbackUrl = Linking.useLinkingURL();
   const hadAuthenticatedSession = useRef(false);
   const [screen, setScreen] = useState<Screen>('login');
@@ -34,6 +38,8 @@ export default function App() {
   const [savingOnboarding, setSavingOnboarding] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunListItem | null>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveryCandidate | null>(null);
+  const [logBusy, setLogBusy] = useState(false);
+  const [logNotice, setLogNotice] = useState<string | null>(null);
 
   const go = (next: Screen) => {
     setNotice('');
@@ -193,7 +199,36 @@ export default function App() {
 
   const openRun = (run: RunListItem) => {
     setSelectedRun(run);
+    setLogNotice(null);
     go('complete');
+  };
+
+  const changeRunVisibility = (run: RunListItem, visibility: RunListItem['visibility']) => {
+    setLogBusy(true);
+    setLogNotice(null);
+    void setRunVisibility(run.id, visibility)
+      .then(async () => {
+        setSelectedRun({ ...run, visibility });
+        setLogNotice('이 기록의 공개 범위를 저장했어요.');
+        await runRecorder.refreshHistory();
+      })
+      .catch((error) => setLogNotice(error instanceof Error ? error.message : String(error)))
+      .finally(() => setLogBusy(false));
+  };
+
+  const removeRun = (run: RunListItem) => {
+    setLogBusy(true);
+    setLogNotice(null);
+    void deleteRun(run.id)
+      .then(async () => {
+        setSelectedRun(null);
+        await runRecorder.refreshHistory();
+        await social.refresh();
+        go('home');
+        setNotice('러닝 기록과 원본 GPS를 삭제했어요.');
+      })
+      .catch((error) => setLogNotice(error instanceof Error ? error.message : String(error)))
+      .finally(() => setLogBusy(false));
   };
 
   const openRequest = (candidate: DiscoveryCandidate) => {
@@ -222,7 +257,7 @@ export default function App() {
       content = <RunScreen recorder={runRecorder} notice={notice} onBack={leaveRunScreen} onHome={() => go('home')} onFinish={finishActiveRun} />;
       break;
     case 'complete':
-      content = <RunCompleteScreen recorder={runRecorder} selectedRun={selectedRun} onHome={() => go('home')} onDiscover={() => go('discover')} />;
+      content = <RunCompleteScreen recorder={runRecorder} selectedRun={selectedRun} logBusy={logBusy} logNotice={logNotice} onHome={() => go('home')} onDiscover={() => go('discover')} onChangeVisibility={changeRunVisibility} onDeleteRun={removeRun} />;
       break;
     case 'discover':
       content = <DiscoverScreen userId={session?.user.id} social={social} onRequest={openRequest} onReport={() => go('report')} />;
@@ -231,7 +266,10 @@ export default function App() {
       content = <RequestScreen candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} />;
       break;
     case 'profile':
-      content = <ProfileScreen latestRun={runRecorder.recentRuns[0]} signedIn={Boolean(session)} onOpenRun={openRun} onLogout={() => void logout()} />;
+      content = <ProfileScreen recentRuns={runRecorder.recentRuns} privacy={privacy} signedIn={Boolean(session)} onOpenRun={openRun} onOpenAccount={() => go('account')} onLogout={() => void logout()} />;
+      break;
+    case 'account':
+      content = <AccountScreen privacy={privacy} onBack={() => go('profile')} />;
       break;
     case 'report':
       content = <ReportScreen onBack={() => go('discover')} />;

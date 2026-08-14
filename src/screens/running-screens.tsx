@@ -2,7 +2,7 @@ import { Alert, Pressable, Text, View } from 'react-native';
 
 import type { RunListItem } from '../features/running/run-types';
 import type { RunRecorderController } from '../hooks/use-run-recorder';
-import { Back, Card, Kicker, Metric, Notice, PrimaryButton } from '../ui/components';
+import { Back, Card, ChoiceGroup, Kicker, Metric, Notice, PrimaryButton, Section } from '../ui/components';
 import { styles } from '../ui/styles';
 import {
   currentDateLabel,
@@ -11,7 +11,9 @@ import {
   formatPace,
   formatRunDate,
   runStreak,
+  visibilityFromLabel,
   visibilityLabels,
+  visibilityOptions,
 } from '../utils/run-format';
 
 export function HomeScreen({ recorder, notice, onStart, onDiscover, onOpenRun }: {
@@ -112,17 +114,33 @@ export function RunScreen({ recorder, notice, onBack, onHome, onFinish }: {
   );
 }
 
-export function RunCompleteScreen({ recorder, selectedRun, onHome, onDiscover }: {
+export function RunCompleteScreen({ recorder, selectedRun, logBusy, logNotice, onHome, onDiscover, onChangeVisibility, onDeleteRun }: {
   recorder: RunRecorderController;
   selectedRun: RunListItem | null;
+  logBusy: boolean;
+  logNotice: string | null;
   onHome: () => void;
   onDiscover: () => void;
+  onChangeVisibility: (run: RunListItem, visibility: RunListItem['visibility']) => void;
+  onDeleteRun: (run: RunListItem) => void;
 }) {
   const summary = selectedRun ? null : recorder.lastRun;
   const distance = summary?.distanceMeters ?? selectedRun?.distanceMeters ?? 0;
   const duration = summary?.durationSeconds ?? selectedRun?.durationSeconds ?? 0;
   const pace = summary?.averagePaceSeconds ?? selectedRun?.averagePaceSeconds ?? null;
   const processing = summary?.serverStatus === 'processing' || selectedRun?.status === 'processing';
+
+  const confirmDelete = () => {
+    if (!selectedRun) return;
+    Alert.alert(
+      '이 러닝 기록을 삭제할까요?',
+      '원본 GPS와 이 기록으로 만들어진 발견 근거까지 함께 삭제되며 복구할 수 없어요.',
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '삭제', style: 'destructive', onPress: () => onDeleteRun(selectedRun) },
+      ],
+    );
+  };
 
   return (
     <>
@@ -134,6 +152,26 @@ export function RunCompleteScreen({ recorder, selectedRun, onHome, onDiscover }:
       <Card tone="mint"><View style={styles.summaryRow}><Metric label="거리" value={formatDistance(distance)} unit="km" /><Metric label="시간" value={formatDuration(duration)} unit="" /><Metric label="평균 페이스" value={formatPace(pace)} unit="/km" /></View></Card>
       <Text style={styles.sectionTitle}>기록 처리 상태</Text>
       <Card><Text style={styles.listTitle}>{processing ? '서버 검증 중' : '검증 완료'}</Text><Text style={styles.cardText}>{processing ? `3km 이상, 비정상 속도, GPS 정확도를 다시 검증한 뒤 유효한 경우에만 발견 후보를 계산해요.${summary ? ` 수집 ${summary.totalPoints}개 중 클라이언트 품질 통과 ${summary.acceptedPoints}개예요.` : ''}` : '매칭 가능한 기록인지 서버 판정을 마쳤어요. 발견 화면에는 정확한 경로나 시각을 노출하지 않습니다.'}</Text></Card>
+
+      {/* 공개 범위 변경과 삭제는 저장된 기록에만 적용한다. 방금 끝낸 러닝은
+          서버가 아직 세션을 처리 중이라 목록에서 다시 열어야 한다. */}
+      {selectedRun ? (
+        <>
+          <Section title="이 기록의 공개 범위">
+            <ChoiceGroup
+              options={visibilityOptions}
+              value={visibilityLabels[selectedRun.visibility]}
+              onChange={(label) => onChangeVisibility(selectedRun, visibilityFromLabel(label))}
+            />
+          </Section>
+          <Text style={styles.caption}>공개 로그도 원본 경로와 출발·도착 지점은 표시하지 않고 거리·페이스 요약만 보여줘요.</Text>
+          {logNotice ? <Notice text={logNotice} /> : null}
+          <Pressable disabled={logBusy} onPress={confirmDelete}>
+            <Text style={styles.destructiveText}>{logBusy ? '처리 중…' : '이 러닝 기록 삭제'}</Text>
+          </Pressable>
+        </>
+      ) : null}
+
       <PrimaryButton label={processing ? '홈으로 돌아가기' : '발견 결과 확인하기'} onPress={processing ? onHome : onDiscover} />
     </>
   );

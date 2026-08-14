@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 
+import type { LogVisibility } from '../features/account/account-api';
 import type { RunListItem } from '../features/running/run-types';
 import {
   requestProposals,
@@ -9,10 +10,23 @@ import {
   type RequestStatus,
   type RequestTemplateKey,
 } from '../features/social/social-types';
+import type { PrivacyController } from '../hooks/use-privacy';
 import type { SocialController } from '../hooks/use-social';
 import { Back, Card, ChoiceGroup, Kicker, Notice, PrimaryButton, RunnerCard, Section, ToggleRow } from '../ui/components';
 import { styles } from '../ui/styles';
-import { formatDistance, visibilityLabels, type VisibilityLabel } from '../utils/run-format';
+import {
+  formatDistance,
+  formatRunDate,
+  visibilityFromLabel,
+  visibilityLabels,
+  visibilityOptions,
+} from '../utils/run-format';
+
+type PrivacyDraft = {
+  discoveryEnabled: boolean;
+  profileVisibility: LogVisibility;
+  logDefaultVisibility: LogVisibility;
+};
 
 const reportReasons = ['성희롱·성적 불쾌감', '스토킹·원치 않는 접촉', '사칭·사기', '혐오·폭언', '위치·개인정보 노출', '미성년자 의심', '기타'];
 const requestStatusLabels: Record<RequestStatus, string> = {
@@ -144,24 +158,111 @@ export function RequestScreen({ candidate, sending, error, onBack, onSend }: {
   );
 }
 
-export function ProfileScreen({ latestRun, signedIn, onOpenRun, onLogout }: {
-  latestRun?: RunListItem;
+export function ProfileScreen({ recentRuns, privacy, signedIn, onOpenRun, onOpenAccount, onLogout }: {
+  recentRuns: RunListItem[];
+  privacy: PrivacyController;
   signedIn: boolean;
   onOpenRun: (run: RunListItem) => void;
+  onOpenAccount: () => void;
   onLogout: () => void;
 }) {
-  const [discoverable, setDiscoverable] = useState(true);
-  const [shareLogs, setShareLogs] = useState(true);
-  const [visibility, setVisibility] = useState<VisibilityLabel>('매칭 공개');
+  const status = privacy.status;
+  const [draft, setDraft] = useState<PrivacyDraft | null>(null);
+
+  // 서버가 유일한 진실이다. 저장하지 않은 편집이 없을 때만 최신 상태를 반영한다.
+  useEffect(() => {
+    if (status && !draft) {
+      setDraft({
+        discoveryEnabled: status.discoveryEnabled,
+        profileVisibility: status.profileVisibility,
+        logDefaultVisibility: status.logDefaultVisibility,
+      });
+    }
+  }, [draft, status]);
+
+  const dirty = Boolean(status && draft && (
+    draft.discoveryEnabled !== status.discoveryEnabled
+    || draft.profileVisibility !== status.profileVisibility
+    || draft.logDefaultVisibility !== status.logDefaultVisibility
+  ));
+
+  const save = () => {
+    if (!draft) return;
+    void privacy.savePrivacy(draft).then(() => setDraft(null)).catch(() => undefined);
+  };
+
   return (
     <>
       <Kicker>나의 설정</Kicker>
       <Text style={styles.pageTitle}>공개 범위와 러닝 로그</Text>
       <Text style={styles.pageSub}>내 기록과 발견 참여는 언제든 내가 결정해요.</Text>
-      <Card><ToggleRow title="발견에 내 프로필 표시" description="조건을 충족한 러너에게만 추상화된 카드로 보여요." value={discoverable} onChange={setDiscoverable} /><View style={styles.divider} /><ToggleRow title="러닝 로그 공개 허용" description="정확한 경로·출발/도착 시각은 공개하지 않아요." value={shareLogs} onChange={setShareLogs} /></Card>
-      <Section title="새 러닝 로그 기본 공개 범위"><ChoiceGroup options={['비공개', '친구 공개', '프로필 공개', '매칭 공개']} value={visibility} onChange={(value) => setVisibility(value as VisibilityLabel)} /></Section>
-      {latestRun ? <Pressable onPress={() => onOpenRun(latestRun)}><Card compact><View><Text style={styles.listTitle}>최근 러닝 기록</Text><Text style={styles.caption}>{formatDistance(latestRun.distanceMeters)}km · {latestRun.status === 'processing' ? '검증 중' : '저장됨'} · {visibilityLabels[latestRun.visibility]}</Text></View><Text style={styles.arrow}>›</Text></Card></Pressable> : null}
-      <Pressable onPress={() => Alert.alert('데모 안내', '러닝 로그 삭제는 모든 사용자에게 무료로 제공되어야 합니다. 실제 연결 단계에서 삭제 API를 추가하세요.')}><Text style={styles.destructiveText}>러닝 로그 삭제 기능 안내</Text></Pressable>
+
+      {privacy.isLoading && !status ? <Notice text="공개 설정을 불러오고 있어요…" /> : null}
+      {privacy.notice ? <Notice text={privacy.notice} /> : null}
+      {privacy.error ? <Notice text={privacy.error} /> : null}
+
+      {draft ? (
+        <>
+          <Card>
+            <ToggleRow
+              title="발견에 내 프로필 표시"
+              description="끄면 이미 노출된 발견 카드도 즉시 회수돼요."
+              value={draft.discoveryEnabled}
+              onChange={(value) => setDraft({ ...draft, discoveryEnabled: value })}
+            />
+          </Card>
+          <Section title="프로필 공개 범위">
+            <ChoiceGroup
+              options={visibilityOptions}
+              value={visibilityLabels[draft.profileVisibility]}
+              onChange={(value) => setDraft({ ...draft, profileVisibility: visibilityFromLabel(value) })}
+            />
+          </Section>
+          <Section title="새 러닝 로그 기본 공개 범위">
+            <ChoiceGroup
+              options={visibilityOptions}
+              value={visibilityLabels[draft.logDefaultVisibility]}
+              onChange={(value) => setDraft({ ...draft, logDefaultVisibility: visibilityFromLabel(value) })}
+            />
+          </Section>
+          {dirty ? (
+            <PrimaryButton
+              label={privacy.isBusy ? '저장 중…' : '공개 설정 저장'}
+              disabled={privacy.isBusy}
+              onPress={save}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>러닝 기록</Text>
+      {recentRuns.length === 0 ? (
+        <Card compact><View><Text style={styles.cardText}>아직 저장된 러닝 기록이 없어요.</Text></View></Card>
+      ) : null}
+      {recentRuns.slice(0, 5).map((run) => (
+        <Pressable key={run.id} onPress={() => onOpenRun(run)}>
+          <Card compact>
+            <View>
+              <Text style={styles.listTitle}>{formatRunDate(run.startedAt)}</Text>
+              <Text style={styles.caption}>
+                {formatDistance(run.distanceMeters)}km · {run.status === 'processing' ? '검증 중' : '저장됨'} · {visibilityLabels[run.visibility]}
+              </Text>
+            </View>
+            <Text style={styles.arrow}>›</Text>
+          </Card>
+        </Pressable>
+      ))}
+      <Text style={styles.caption}>기록을 눌러 로그별 공개 범위를 바꾸거나 삭제할 수 있어요.</Text>
+
+      <Pressable onPress={onOpenAccount}>
+        <Card compact>
+          <View>
+            <Text style={styles.listTitle}>계정과 데이터</Text>
+            <Text style={styles.caption}>위치 동의 철회, 계정 삭제</Text>
+          </View>
+          <Text style={styles.arrow}>›</Text>
+        </Card>
+      </Pressable>
       {signedIn ? <Pressable onPress={onLogout}><Text style={styles.logoutText}>로그아웃</Text></Pressable> : null}
     </>
   );

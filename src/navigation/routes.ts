@@ -7,6 +7,7 @@ export type Screen =
   | 'discover'
   | 'request'
   | 'profile'
+  | 'account'
   | 'report';
 
 export type MainTab = Extract<Screen, 'home' | 'discover' | 'profile'>;
