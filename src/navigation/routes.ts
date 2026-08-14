@@ -8,6 +8,8 @@ export type Screen =
   | 'request'
   | 'profile'
   | 'account'
+  | 'chat'
+  | 'chatThread'
   | 'report';
 
 export type MainTab = Extract<Screen, 'home' | 'discover' | 'profile'>;

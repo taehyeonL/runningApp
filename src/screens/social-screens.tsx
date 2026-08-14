@@ -41,17 +41,30 @@ function proposalLabel(key: ConnectionRequestSummary['templateKey']) {
   return requestProposals.find((proposal) => proposal.key === key)?.label ?? '직접 작성한 러닝 제안';
 }
 
-export function DiscoverScreen({ userId, social, onRequest, onReport }: {
+export function DiscoverScreen({ userId, social, chatUnreadCount, onRequest, onReport, onOpenChat }: {
   userId?: string;
   social: SocialController;
+  chatUnreadCount: number;
   onRequest: (candidate: DiscoveryCandidate) => void;
   onReport: () => void;
+  onOpenChat: () => void;
 }) {
   return (
     <>
       <Kicker>안전한 발견</Kicker>
       <Text style={styles.pageTitle}>오늘 스친 러너</Text>
       <Text style={styles.pageSub}>완료한 러닝의 안전한 요약을 바탕으로 보여드려요.</Text>
+      <Pressable onPress={onOpenChat}>
+        <Card compact>
+          <View>
+            <Text style={styles.listTitle}>대화</Text>
+            <Text style={styles.caption}>서로 수락한 러너와 이야기해요</Text>
+          </View>
+          {chatUnreadCount > 0
+            ? <View style={styles.unreadBadge}><Text style={styles.unreadText}>{chatUnreadCount}</Text></View>
+            : <Text style={styles.arrow}>›</Text>}
+        </Card>
+      </Pressable>
       {social.isLoading ? <Notice text="발견 후보와 요청 상태를 불러오고 있어요…" /> : null}
       {social.error ? <Notice text={social.error} /> : null}
       {!social.isLoading && social.candidates.length === 0 ? (

@@ -3,9 +3,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Platform } from 'react-native';
 
 import { deleteRun, setRunVisibility } from './src/features/account/account-api';
+import { registerForMessagePush, unregisterMessagePush } from './src/features/chat/push';
 import type { RunListItem } from './src/features/running/run-types';
 import type { DiscoveryCandidate, RequestTemplateKey } from './src/features/social/social-types';
 import { useAuthSession } from './src/hooks/use-auth-session';
+import { useChat } from './src/hooks/use-chat';
 import { usePrivacy } from './src/hooks/use-privacy';
 import { useRunRecorder } from './src/hooks/use-run-recorder';
 import { useSocial } from './src/hooks/use-social';
@@ -20,6 +22,7 @@ import { hasCompletedOnboarding, saveOnboarding } from './src/lib/onboarding';
 import { hasSupabaseConfig } from './src/lib/supabase';
 import { screensWithBottomNavigation, type Screen } from './src/navigation/routes';
 import { AccountScreen } from './src/screens/account-screens';
+import { ChatListScreen, ChatThreadScreen } from './src/screens/chat-screens';
 import { LoginScreen, OnboardingScreen, type OnboardingSubmission } from './src/screens/auth-screens';
 import { HomeScreen, RunCompleteScreen, RunScreen } from './src/screens/running-screens';
 import { DiscoverScreen, ProfileScreen, ReportScreen, RequestScreen } from './src/screens/social-screens';
@@ -30,8 +33,10 @@ export default function App() {
   const runRecorder = useRunRecorder(session?.user.id);
   const social = useSocial(session?.user.id);
   const privacy = usePrivacy(session?.user.id);
+  const chat = useChat(session?.user.id);
   const callbackUrl = Linking.useLinkingURL();
   const hadAuthenticatedSession = useRef(false);
+  const pushToken = useRef<string | null>(null);
   const [screen, setScreen] = useState<Screen>('login');
   const [notice, setNotice] = useState('');
   const [authenticatingProvider, setAuthenticatingProvider] = useState<SocialProvider | null>(null);
@@ -94,6 +99,23 @@ export default function App() {
     if (screen === 'discover' && session) void social.refresh();
   }, [screen, session, social.refresh]);
 
+  useEffect(() => {
+    if (screen === 'chat' && session) void chat.refreshThreads();
+  }, [screen, session, chat.refreshThreads]);
+
+  // 푸시 등록 실패는 대화 자체를 막지 않는다. 권한을 거부했거나 Expo Go처럼
+  // 원격 푸시를 지원하지 않는 환경이면 알림만 조용히 비활성화된다.
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    void registerForMessagePush().then((result) => {
+      if (active && result.status === 'registered') pushToken.current = result.token;
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [session]);
+
   const socialLogin = async (provider: SocialProvider) => {
     setAuthenticatingProvider(provider);
     setNotice('');
@@ -112,6 +134,10 @@ export default function App() {
       go('run');
       setNotice('진행 중인 러닝을 종료하거나 삭제한 뒤 로그아웃해 주세요.');
       return;
+    }
+    if (pushToken.current) {
+      await unregisterMessagePush(pushToken.current).catch(() => undefined);
+      pushToken.current = null;
     }
     const { error } = await signOut();
     if (error) {
@@ -231,6 +257,16 @@ export default function App() {
       .finally(() => setLogBusy(false));
   };
 
+  const openChatThread = (partnerId: string) => {
+    void chat.openThread(partnerId);
+    go('chatThread');
+  };
+
+  const leaveChatThread = () => {
+    chat.closeThread();
+    go('chat');
+  };
+
   const openRequest = (candidate: DiscoveryCandidate) => {
     setSelectedCandidate(candidate);
     go('request');
@@ -260,7 +296,7 @@ export default function App() {
       content = <RunCompleteScreen recorder={runRecorder} selectedRun={selectedRun} logBusy={logBusy} logNotice={logNotice} onHome={() => go('home')} onDiscover={() => go('discover')} onChangeVisibility={changeRunVisibility} onDeleteRun={removeRun} />;
       break;
     case 'discover':
-      content = <DiscoverScreen userId={session?.user.id} social={social} onRequest={openRequest} onReport={() => go('report')} />;
+      content = <DiscoverScreen userId={session?.user.id} social={social} chatUnreadCount={chat.totalUnread} onRequest={openRequest} onReport={() => go('report')} onOpenChat={() => go('chat')} />;
       break;
     case 'request':
       content = <RequestScreen candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} />;
@@ -270,6 +306,12 @@ export default function App() {
       break;
     case 'account':
       content = <AccountScreen privacy={privacy} onBack={() => go('profile')} />;
+      break;
+    case 'chat':
+      content = <ChatListScreen chat={chat} onBack={() => go('discover')} onOpenThread={openChatThread} />;
+      break;
+    case 'chatThread':
+      content = <ChatThreadScreen chat={chat} userId={session?.user.id} onBack={leaveChatThread} />;
       break;
     case 'report':
       content = <ReportScreen onBack={() => go('discover')} />;

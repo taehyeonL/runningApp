@@ -108,6 +108,42 @@ function message(error: unknown) {
   return String(error);
 }
 
+type MessagePushRow = {
+  outbox_id: number;
+  token: string;
+  platform: string;
+  sender_nickname: string;
+  unread_count: number;
+};
+
+// 알림에는 대화 본문을 넣지 않는다. 보낸 사람과 미읽음 수까지만 실어서,
+// Expo 푸시 서비스나 잠금화면에 대화 내용이 남지 않게 한다.
+async function deliverMessagePushes(client: SupabaseClient) {
+  const claimed = await client.rpc('worker_claim_message_pushes', { p_limit: 100 });
+  if (claimed.error) return { sent: 0, error: claimed.error.message };
+
+  const rows = (claimed.data ?? []) as MessagePushRow[];
+  if (rows.length === 0) return { sent: 0, error: null };
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(rows.map((row) => ({
+        to: row.token,
+        title: '새 메시지',
+        body: `${row.sender_nickname}님이 메시지를 보냈어요.`,
+        badge: row.unread_count,
+        data: { kind: 'message' },
+      }))),
+    });
+    if (!response.ok) throw new Error(`Expo push returned HTTP ${response.status}`);
+    return { sent: rows.length, error: null };
+  } catch (error) {
+    return { sent: 0, error: message(error) };
+  }
+}
+
 async function loadPoints(client: SupabaseClient, sessionId: string) {
   const points: LocationPointRow[] = [];
   for (let page = 0; page < MAX_POINT_PAGES; page += 1) {
@@ -276,6 +312,8 @@ Deno.serve(async (request) => {
       alertDeliveryError = message(alertError);
     }
   }
+  const messagePushes = await deliverMessagePushes(client);
+
   if (!serviceRequest) {
     return json({
       accepted: true,
@@ -294,6 +332,7 @@ Deno.serve(async (request) => {
     pendingAlerts: alerts.length,
     deliveredAlerts,
     alertDeliveryError,
+    messagePushes,
     maintenanceErrors: [purge.error, expiredRequests.error, reconciledRequests.error, alertResult.error]
       .filter(Boolean)
       .map((error) => error?.message),

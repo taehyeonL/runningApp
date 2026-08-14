@@ -22,6 +22,7 @@
         "npm:@types/react@~19.2.2",
         "npm:expo-linking@~57.0.5",
         "npm:expo-location@~57.0.9",
+        "npm:expo-notifications@~57.0.10",
         "npm:expo-secure-store@~57.0.1",
         "npm:expo-status-bar@~57.0.1",
         "npm:expo-task-manager@~57.0.9",
