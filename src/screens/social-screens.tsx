@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 
 import type { LogVisibility } from '../features/account/account-api';
 import type { RunListItem } from '../features/running/run-types';
+import {
+  reportReasonOptions,
+  type ModerationNotice,
+  type ProfileReportReason,
+} from '../features/social/moderation-api';
 import {
   requestProposals,
   type ConnectionRequestSummary,
@@ -136,12 +141,13 @@ function RequestCard({ request, userId, busy, onAccept, onDecline, onCancel }: {
   );
 }
 
-export function RequestScreen({ candidate, sending, error, onBack, onSend }: {
+export function RequestScreen({ candidate, sending, error, onBack, onSend, onReport }: {
   candidate: DiscoveryCandidate | null;
   sending: boolean;
   error: string | null;
   onBack: () => void;
   onSend: (template: RequestTemplateKey) => Promise<void>;
+  onReport: (candidate: DiscoveryCandidate) => void;
 }) {
   const [proposal, setProposal] = useState(requestProposals[0].label);
   if (!candidate) {
@@ -167,13 +173,17 @@ export function RequestScreen({ candidate, sending, error, onBack, onSend }: {
       <Card tone="yellow"><Text style={styles.listTitle}>무료 요청 가능</Text><Text style={styles.cardText}>서버가 최근 30일 유효한 반복 교차 5회 이상을 확인한 후보에게만 요청할 수 있어요.</Text></Card>
       {error ? <Notice text={error} /> : null}
       <PrimaryButton label={sending ? '요청 보내는 중…' : '같이 뛰기 요청 보내기'} disabled={sending} onPress={() => void submit()} />
+      <Pressable style={styles.reportLink} onPress={() => onReport(candidate)}>
+        <Text style={styles.reportLinkText}>이 러너를 신고하거나 차단하기</Text>
+      </Pressable>
     </>
   );
 }
 
-export function ProfileScreen({ recentRuns, privacy, signedIn, onOpenRun, onOpenAccount, onLogout }: {
+export function ProfileScreen({ recentRuns, privacy, moderationNotices, signedIn, onOpenRun, onOpenAccount, onLogout }: {
   recentRuns: RunListItem[];
   privacy: PrivacyController;
+  moderationNotices: ModerationNotice[];
   signedIn: boolean;
   onOpenRun: (run: RunListItem) => void;
   onOpenAccount: () => void;
@@ -213,6 +223,19 @@ export function ProfileScreen({ recentRuns, privacy, signedIn, onOpenRun, onOpen
       {privacy.isLoading && !status ? <Notice text="공개 설정을 불러오고 있어요…" /> : null}
       {privacy.notice ? <Notice text={privacy.notice} /> : null}
       {privacy.error ? <Notice text={privacy.error} /> : null}
+
+      {/* 제재를 받았다면 사유·기간·이의제기 방법을 본인에게 알려야 한다.
+          신고자와 내부 메모는 뷰 자체가 노출하지 않는다. */}
+      {moderationNotices.map((item) => (
+        <Card key={item.id} tone="yellow">
+          <Text style={styles.listTitle}>이용 제한 안내</Text>
+          <Text style={styles.cardText}>{item.userNotice ?? '운영 검토에 따라 일부 기능이 제한되었어요.'}</Text>
+          <Text style={styles.caption}>
+            {formatRunDate(item.startsAt)} 시작
+            {item.endsAt ? ` · ${formatRunDate(item.endsAt)} 해제 예정` : ' · 해제 시점은 검토 결과에 따라 안내돼요'}
+          </Text>
+        </Card>
+      ))}
 
       {draft ? (
         <>
@@ -281,18 +304,80 @@ export function ProfileScreen({ recentRuns, privacy, signedIn, onOpenRun, onOpen
   );
 }
 
-export function ReportScreen({ onBack }: { onBack: () => void }) {
-  const [selectedReport, setSelectedReport] = useState(reportReasons[0]);
+export function ReportScreen({ target, busy, notice, error, onBack, onSubmit, onBlock }: {
+  target: { id: string; nickname: string } | null;
+  busy: boolean;
+  notice: string | null;
+  error: string | null;
+  onBack: () => void;
+  onSubmit: (reason: ProfileReportReason, details: string) => void;
+  onBlock: () => void;
+}) {
+  const [reason, setReason] = useState<ProfileReportReason>('stalking');
+  const [details, setDetails] = useState('');
+
+  const confirmBlock = () => {
+    if (!target) return;
+    Alert.alert(
+      `${target.nickname}님을 차단할까요?`,
+      '서로의 발견 카드와 요청, 대화에서 즉시 제외됩니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '차단', style: 'destructive', onPress: onBlock },
+      ],
+    );
+  };
+
   return (
     <>
       <Back onPress={onBack} />
       <Kicker>안전 센터</Kicker>
       <Text style={styles.pageTitle}>신고 또는 차단</Text>
-      <Text style={styles.pageSub}>차단하면 서로의 발견 카드와 요청에서 즉시 제외됩니다.</Text>
+      <Text style={styles.pageSub}>
+        {target ? `${target.nickname}님에 대한 신고예요. ` : ''}차단하면 서로의 발견 카드와 요청에서 즉시 제외됩니다.
+      </Text>
       <Card tone="yellow"><Text style={styles.listTitle}>긴급한 위험이 있나요?</Text><Text style={styles.cardText}>즉시 112 등 긴급 도움을 요청하세요. 서비스 신고는 안전 대응을 위한 보조 수단입니다.</Text></Card>
-      <Section title="신고 사유"><ChoiceGroup options={reportReasons} value={selectedReport} onChange={setSelectedReport} /></Section>
-      <PrimaryButton label="신고 제출하기" onPress={() => Alert.alert('신고가 접수되었어요', '운영 검토를 위해 증거와 반복성을 확인합니다. 신고자 정보는 상대에게 공개되지 않아요.')} />
-      <Pressable style={styles.blockButton} onPress={() => Alert.alert('차단했어요', '이제 이 사용자는 내 발견 카드와 요청에서 제외됩니다.')}><Text style={styles.blockText}>이 사용자 차단하기</Text></Pressable>
+
+      {notice ? <Notice text={notice} /> : null}
+      {error ? <Notice text={error} /> : null}
+
+      {target ? (
+        <>
+          <Section title="신고 사유">
+            <ChoiceGroup
+              options={reportReasonOptions.map((option) => option.label)}
+              value={reportReasonOptions.find((option) => option.key === reason)?.label ?? ''}
+              onChange={(label) => {
+                const found = reportReasonOptions.find((option) => option.label === label);
+                if (found) setReason(found.key);
+              }}
+            />
+          </Section>
+          <TextInput
+            style={styles.detailsInput}
+            value={details}
+            onChangeText={setDetails}
+            placeholder="어떤 일이 있었는지 알려주세요. (선택)"
+            placeholderTextColor="#93A39E"
+            multiline
+            maxLength={2000}
+          />
+          <Text style={styles.caption}>신고 시점의 프로필이 증거로 함께 접수돼요. 신고자 정보는 상대에게 공개되지 않아요.</Text>
+          <PrimaryButton
+            label={busy ? '접수 중…' : '신고 제출하기'}
+            disabled={busy}
+            onPress={() => onSubmit(reason, details)}
+          />
+          <Pressable style={styles.blockButton} onPress={confirmBlock}>
+            <Text style={styles.blockText}>이 사용자 차단하기</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Card>
+          <Text style={styles.listTitle}>신고할 상대를 먼저 선택해 주세요</Text>
+          <Text style={styles.cardText}>발견 카드나 대화에서 신고할 상대를 고르면 사유를 선택할 수 있어요.</Text>
+        </Card>
+      )}
     </>
   );
 }

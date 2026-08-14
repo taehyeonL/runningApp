@@ -5,6 +5,13 @@ import { Alert, Platform } from 'react-native';
 import { deleteRun, setRunVisibility } from './src/features/account/account-api';
 import { registerForMessagePush, unregisterMessagePush } from './src/features/chat/push';
 import type { RunListItem } from './src/features/running/run-types';
+import {
+  blockUser,
+  fetchModerationNotices,
+  reportProfile,
+  type ModerationNotice,
+  type ProfileReportReason,
+} from './src/features/social/moderation-api';
 import type { DiscoveryCandidate, RequestTemplateKey } from './src/features/social/social-types';
 import { useAuthSession } from './src/hooks/use-auth-session';
 import { useChat } from './src/hooks/use-chat';
@@ -45,6 +52,11 @@ export default function App() {
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveryCandidate | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logNotice, setLogNotice] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ id: string; nickname: string } | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportNotice, setReportNotice] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [moderationNotices, setModerationNotices] = useState<ModerationNotice[]>([]);
 
   const go = (next: Screen) => {
     setNotice('');
@@ -102,6 +114,19 @@ export default function App() {
   useEffect(() => {
     if (screen === 'chat' && session) void chat.refreshThreads();
   }, [screen, session, chat.refreshThreads]);
+
+  useEffect(() => {
+    if (screen !== 'profile' || !session) return;
+    let active = true;
+    void fetchModerationNotices()
+      .then((notices) => {
+        if (active) setModerationNotices(notices);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [screen, session]);
 
   // 푸시 등록 실패는 대화 자체를 막지 않는다. 권한을 거부했거나 Expo Go처럼
   // 원격 푸시를 지원하지 않는 환경이면 알림만 조용히 비활성화된다.
@@ -257,6 +282,40 @@ export default function App() {
       .finally(() => setLogBusy(false));
   };
 
+  const openReport = (candidate: DiscoveryCandidate) => {
+    setReportTarget({ id: candidate.profile.id, nickname: candidate.profile.nickname });
+    setReportNotice(null);
+    setReportError(null);
+    go('report');
+  };
+
+  const submitReport = (reason: ProfileReportReason, details: string) => {
+    if (!reportTarget) return;
+    setReportBusy(true);
+    setReportError(null);
+    void reportProfile(reportTarget.id, reason, details)
+      .then(async () => {
+        setReportNotice('신고를 접수했어요. 신고 시점 프로필이 증거로 함께 저장되며, 신고자 정보는 상대에게 공개되지 않아요.');
+        await social.refresh();
+      })
+      .catch((error) => setReportError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setReportBusy(false));
+  };
+
+  const blockFromReport = () => {
+    if (!reportTarget || !session) return;
+    setReportBusy(true);
+    setReportError(null);
+    void blockUser(session.user.id, reportTarget.id)
+      .then(async () => {
+        setReportNotice('차단했어요. 서로의 발견 카드와 요청, 대화에서 즉시 제외됩니다.');
+        await social.refresh();
+        await chat.refreshThreads();
+      })
+      .catch((error) => setReportError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setReportBusy(false));
+  };
+
   const openChatThread = (partnerId: string) => {
     void chat.openThread(partnerId);
     go('chatThread');
@@ -299,10 +358,10 @@ export default function App() {
       content = <DiscoverScreen userId={session?.user.id} social={social} chatUnreadCount={chat.totalUnread} onRequest={openRequest} onReport={() => go('report')} onOpenChat={() => go('chat')} />;
       break;
     case 'request':
-      content = <RequestScreen candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} />;
+      content = <RequestScreen candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} onReport={openReport} />;
       break;
     case 'profile':
-      content = <ProfileScreen recentRuns={runRecorder.recentRuns} privacy={privacy} signedIn={Boolean(session)} onOpenRun={openRun} onOpenAccount={() => go('account')} onLogout={() => void logout()} />;
+      content = <ProfileScreen recentRuns={runRecorder.recentRuns} privacy={privacy} moderationNotices={moderationNotices} signedIn={Boolean(session)} onOpenRun={openRun} onOpenAccount={() => go('account')} onLogout={() => void logout()} />;
       break;
     case 'account':
       content = <AccountScreen privacy={privacy} onBack={() => go('profile')} />;
@@ -314,7 +373,7 @@ export default function App() {
       content = <ChatThreadScreen chat={chat} userId={session?.user.id} onBack={leaveChatThread} />;
       break;
     case 'report':
-      content = <ReportScreen onBack={() => go('discover')} />;
+      content = <ReportScreen target={reportTarget} busy={reportBusy} notice={reportNotice} error={reportError} onBack={() => go('discover')} onSubmit={submitReport} onBlock={blockFromReport} />;
       break;
   }
 
