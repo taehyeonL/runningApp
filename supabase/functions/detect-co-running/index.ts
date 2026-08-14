@@ -243,7 +243,9 @@ Deno.serve(async (request) => {
     }
   }
 
-  const purge = await client.rpc('worker_purge_expired_location_points', { p_limit: 10000 });
+  // p_limit은 포인트가 아니라 세션 수다. 세션마다 격자 요약을 만든 뒤 원본을
+  // 지우므로, 1분 주기 안에 끝나도록 배치를 작게 잡는다.
+  const purge = await client.rpc('worker_purge_expired_location_points', { p_limit: 200 });
   const [expiredRequests, reconciledRequests, alertResult] = await Promise.all([
     client.rpc('expire_due_connection_requests', { batch_size: 1000 }),
     client.rpc('reconcile_restricted_connection_requests', { batch_size: 1000 }),

@@ -33,7 +33,7 @@
 
 - [x] `expo-location` 위치 권한 안내, 시작·일시정지·재개·종료, 백그라운드/전경 폴백, 암호화 GPS 재전송 큐 구현
 - [x] 3km 완료·비정상 속도·GPS accuracy 서버 최종 검증과 클라이언트 30m/12mps 사전 필터 구현
-- [ ] 원본 GPS 보관 기간, 자동 마스킹, 삭제 작업 정의 및 운영 테스트
+- [x] 원본 GPS 보관 기간, 자동 마스킹, 삭제 작업 정의 및 운영 테스트
 - [x] server-only co-running worker 구현·배포: 서버 거리 검증, 끝점 마스킹, 시간·궤적·방향·속도·accuracy 판정, 원자적 후보 생성
 - [x] 실패 detection job 복구용 Supabase Cron + Vault 1분 주기 호출 설정
 - [x] detection job 5회 최종 실패, Cron SQL 실패, worker timeout·non-2xx server-only alert outbox
