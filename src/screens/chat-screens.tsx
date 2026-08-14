@@ -3,7 +3,7 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 
 import { reportReasons, type ChatMessage, type ReportReason } from '../features/chat/chat-api';
 import type { ChatController } from '../hooks/use-chat';
-import { Back, Card, ChoiceGroup, Kicker, Notice, Section } from '../ui/components';
+import { Back, Card, ChoiceGroup, Kicker, Notice, SafetyGuide, Section } from '../ui/components';
 import { styles } from '../ui/styles';
 
 function messageTime(value: string) {
@@ -121,6 +121,10 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
       <Kicker>대화</Kicker>
       <Text style={styles.pageTitle}>{partner?.partnerNickname ?? '대화'}</Text>
       <Text style={styles.pageSub}>정확한 위치나 집·직장을 묻는 메시지는 받지 않아도 돼요. 불편하면 메시지를 눌러 바로 신고할 수 있어요.</Text>
+
+      {/* 약속을 잡는 자리가 바로 이 화면이므로 안전 가이드도 여기 둔다.
+          아직 주고받은 메시지가 없으면 펼친 채로 보여준다. */}
+      <SafetyGuide defaultExpanded={chat.messages.length === 0} />
 
       {chat.notice ? <Notice text={chat.notice} /> : null}
       {chat.error ? <Notice text={chat.error} /> : null}

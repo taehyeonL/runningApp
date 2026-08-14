@@ -17,7 +17,7 @@ import {
 } from '../features/social/social-types';
 import type { PrivacyController } from '../hooks/use-privacy';
 import type { SocialController } from '../hooks/use-social';
-import { Back, Card, ChoiceGroup, Kicker, Notice, PrimaryButton, RunnerCard, Section, ToggleRow } from '../ui/components';
+import { Back, Card, ChoiceGroup, Kicker, Notice, PrimaryButton, RunnerCard, SafetyGuide, Section, ToggleRow } from '../ui/components';
 import { styles } from '../ui/styles';
 import {
   formatDistance,
@@ -171,6 +171,7 @@ export function RequestScreen({ candidate, sending, error, onBack, onSend, onRep
       <RunnerCard candidate={candidate} />
       <Section title="제안할 러닝"><ChoiceGroup options={requestProposals.map((item) => item.label)} value={proposal} onChange={setProposal} /></Section>
       <Card tone="yellow"><Text style={styles.listTitle}>무료 요청 가능</Text><Text style={styles.cardText}>서버가 최근 30일 유효한 반복 교차 5회 이상을 확인한 후보에게만 요청할 수 있어요.</Text></Card>
+      <SafetyGuide />
       {error ? <Notice text={error} /> : null}
       <PrimaryButton label={sending ? '요청 보내는 중…' : '같이 뛰기 요청 보내기'} disabled={sending} onPress={() => void submit()} />
       <Pressable style={styles.reportLink} onPress={() => onReport(candidate)}>
@@ -337,6 +338,7 @@ export function ReportScreen({ target, busy, notice, error, onBack, onSubmit, on
         {target ? `${target.nickname}님에 대한 신고예요. ` : ''}차단하면 서로의 발견 카드와 요청에서 즉시 제외됩니다.
       </Text>
       <Card tone="yellow"><Text style={styles.listTitle}>긴급한 위험이 있나요?</Text><Text style={styles.cardText}>즉시 112 등 긴급 도움을 요청하세요. 서비스 신고는 안전 대응을 위한 보조 수단입니다.</Text></Card>
+      <SafetyGuide />
 
       {notice ? <Notice text={notice} /> : null}
       {error ? <Notice text={error} /> : null}

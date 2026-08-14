@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import type { PropsWithChildren, ReactNode } from 'react';
+import { useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -9,6 +9,12 @@ import {
   View,
 } from 'react-native';
 
+import {
+  firstMeetingGuideFooter,
+  firstMeetingGuideItems,
+  firstMeetingGuideSummary,
+  firstMeetingGuideTitle,
+} from '../features/safety/safety-guide';
 import type { DiscoveryCandidate } from '../features/social/social-types';
 import type { MainTab, Screen } from '../navigation/routes';
 import { styles } from './styles';
@@ -139,6 +145,41 @@ export function Card({ children, tone, compact = false }: PropsWithChildren<{
     ]}>
       {children}
     </View>
+  );
+}
+
+// 첫 만남 안전 가이드. 대화 화면에서는 접힌 상태로 시작해 대화를 가리지 않되,
+// 완전히 숨기지는 않는다. 안전 안내는 사용자가 찾아 들어가야 하는 정보가 아니라
+// 약속을 잡는 자리에 늘 보여야 하는 정보이기 때문이다.
+export function SafetyGuide({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  return (
+    <Card tone="yellow">
+      <Pressable onPress={() => setExpanded(!expanded)}>
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleCopy}>
+            <Text style={styles.listTitle}>{firstMeetingGuideTitle}</Text>
+            <Text style={styles.cardText}>{firstMeetingGuideSummary}</Text>
+          </View>
+          <Text style={styles.arrow}>{expanded ? '⌃' : '⌄'}</Text>
+        </View>
+      </Pressable>
+      {expanded ? (
+        <>
+          {firstMeetingGuideItems.map((item) => (
+            <View key={item.title} style={styles.guideItem}>
+              <Text style={styles.guideSymbol}>{item.symbol}</Text>
+              <View style={styles.guideCopy}>
+                <Text style={styles.guideTitle}>{item.title}</Text>
+                <Text style={styles.cardText}>{item.body}</Text>
+              </View>
+            </View>
+          ))}
+          <View style={styles.divider} />
+          <Text style={styles.cardText}>{firstMeetingGuideFooter}</Text>
+        </>
+      ) : null}
+    </Card>
   );
 }
 

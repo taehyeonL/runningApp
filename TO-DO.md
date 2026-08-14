@@ -49,7 +49,7 @@
   - [ ] EAS 프로젝트 ID 발급과 개발 빌드에서 실제 푸시 수신 검증 (Expo Go는 SDK 53부터 원격 푸시 미지원이라 코드만으로는 확인 불가)
 - [x] 신고 증거 제출, 운영자 검토, 노출 제한·제재 이력 관리 도구 구현
   - [ ] 운영자 콘솔 화면 자체는 미구현. 현재는 service_role RPC(`operator_review_queue`, `operator_resolve_report`, `operator_sanction_history`)로만 접근 가능
-- [ ] 공개 장소·낮 시간·지인 공유를 안내하는 첫 만남 안전 가이드 추가
+- [x] 공개 장소·낮 시간·지인 공유를 안내하는 첫 만남 안전 가이드 추가
 
 ### P3 — 워치와 제품 고도화
 
