@@ -116,32 +116,105 @@ type MessagePushRow = {
   unread_count: number;
 };
 
+// Expo는 요청당 최대 100건을 받고, data 배열의 티켓을 요청과 같은 순서로
+// 돌려준다. HTTP 200이어도 티켓 단위로 실패할 수 있으므로 전체 성공으로
+// 취급하면 안 된다.
+const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_BATCH = 100;
+
+type ExpoPushTicket = {
+  status?: string;
+  message?: string;
+  details?: { error?: string };
+};
+
 // 알림에는 대화 본문을 넣지 않는다. 보낸 사람과 미읽음 수까지만 실어서,
 // Expo 푸시 서비스나 잠금화면에 대화 내용이 남지 않게 한다.
 async function deliverMessagePushes(client: SupabaseClient) {
-  const claimed = await client.rpc('worker_claim_message_pushes', { p_limit: 100 });
-  if (claimed.error) return { sent: 0, error: claimed.error.message };
+  const claimed = await client.rpc('worker_claim_message_pushes', { p_limit: EXPO_PUSH_BATCH });
+  if (claimed.error) return { sent: 0, failed: 0, dropped: 0, error: claimed.error.message };
 
   const rows = (claimed.data ?? []) as MessagePushRow[];
-  if (rows.length === 0) return { sent: 0, error: null };
+  if (rows.length === 0) return { sent: 0, failed: 0, dropped: 0, error: null };
 
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(rows.map((row) => ({
-        to: row.token,
-        title: '새 메시지',
-        body: `${row.sender_nickname}님이 메시지를 보냈어요.`,
-        badge: row.unread_count,
-        data: { kind: 'message' },
-      }))),
-    });
-    if (!response.ok) throw new Error(`Expo push returned HTTP ${response.status}`);
-    return { sent: rows.length, error: null };
-  } catch (error) {
-    return { sent: 0, error: message(error) };
+  const delivered: number[] = [];
+  const abandoned: number[] = [];
+  const retry: number[] = [];
+  const deadTokens = new Set<string>();
+  let lastError: string | null = null;
+
+  for (let start = 0; start < rows.length; start += EXPO_PUSH_BATCH) {
+    const batch = rows.slice(start, start + EXPO_PUSH_BATCH);
+    try {
+      const response = await fetch(EXPO_PUSH_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(batch.map((row) => ({
+          to: row.token,
+          title: '새 메시지',
+          body: `${row.sender_nickname}님이 메시지를 보냈어요.`,
+          badge: row.unread_count,
+          data: { kind: 'message' },
+        }))),
+      });
+      if (!response.ok) throw new Error(`Expo push returned HTTP ${response.status}`);
+
+      const payload = await response.json() as { data?: ExpoPushTicket[] };
+      const tickets = Array.isArray(payload.data) ? payload.data : [];
+      batch.forEach((row, index) => {
+        const ticket = tickets[index];
+        // 티켓이 없으면 발송 여부를 알 수 없으므로 성공으로 치지 않고 재시도한다.
+        if (!ticket) {
+          retry.push(row.outbox_id);
+          return;
+        }
+        if (ticket.status === 'ok') {
+          delivered.push(row.outbox_id);
+          return;
+        }
+        // 등록이 풀린 기기는 다시 두드려도 소용없다. 토큰을 지우고 포기한다.
+        if (ticket.details?.error === 'DeviceNotRegistered') {
+          deadTokens.add(row.token);
+          abandoned.push(row.outbox_id);
+          return;
+        }
+        lastError = ticket.details?.error ?? ticket.message ?? 'expo_ticket_error';
+        retry.push(row.outbox_id);
+      });
+    } catch (error) {
+      // 요청 자체가 실패하면 이 묶음은 확인되지 않은 상태로 두고 다음 주기에
+      // 다시 시도한다. 완료 처리하지 않는 것이 핵심이다.
+      lastError = message(error);
+      retry.push(...batch.map((row) => row.outbox_id));
+    }
   }
+
+  if (delivered.length > 0) {
+    await client.rpc('worker_mark_message_pushes_delivered', { p_outbox_ids: delivered });
+  }
+  if (abandoned.length > 0) {
+    await client.rpc('worker_abandon_message_pushes', {
+      p_outbox_ids: abandoned,
+      p_error: 'DeviceNotRegistered',
+    });
+  }
+  if (retry.length > 0) {
+    await client.rpc('worker_fail_message_pushes', {
+      p_outbox_ids: retry,
+      p_error: lastError ?? 'unconfirmed',
+    });
+  }
+  for (const token of deadTokens) {
+    await client.rpc('worker_drop_push_token', { p_token: token });
+  }
+  await client.rpc('worker_prune_message_push_outbox', { p_days: 7 });
+
+  return {
+    sent: delivered.length,
+    failed: retry.length,
+    dropped: abandoned.length,
+    error: lastError,
+  };
 }
 
 async function loadPoints(client: SupabaseClient, sessionId: string) {

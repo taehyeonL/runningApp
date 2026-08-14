@@ -342,5 +342,147 @@ select is(
   'no notification is sent for a conversation the block already closed'
 );
 
+-- ---------------------------------------------------------------------------
+-- 알림 유실 방지: 발송을 확인해야 완료 처리된다.
+-- ---------------------------------------------------------------------------
+select ok(
+  has_function_privilege('service_role', 'public.worker_mark_message_pushes_delivered(bigint[])', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.worker_mark_message_pushes_delivered(bigint[])', 'EXECUTE'),
+  'only the worker can confirm a notification was sent'
+);
+
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000404', 'chat-d@example.test');
+insert into public.profiles (id, nickname, birth_year, age_verified_at)
+values ('00000000-0000-0000-0000-000000000404', '알림받는이', 1990, now());
+insert into public.consent_records (user_id, consent_type, policy_version, granted, captured_at)
+select '00000000-0000-0000-0000-000000000404', t, 'chat-test-v1', true, now() - interval '7 days'
+  from (values ('adult_confirmation'), ('terms'), ('privacy'), ('location')) v(t);
+insert into public.friendships (user_one_id, user_two_id)
+values ('00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000404');
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000404', true);
+set local role authenticated;
+select lives_ok(
+  $$select public.register_push_token('ExponentPushToken[retry-device]', 'ios')$$,
+  'the recipient registers a device'
+);
+reset role;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000402', true);
+set local role authenticated;
+insert into public.messages (sender_id, recipient_id, body)
+values (
+  '00000000-0000-0000-0000-000000000402',
+  '00000000-0000-0000-0000-000000000404',
+  '알림 확인용 메시지'
+);
+reset role;
+
+-- 1회차: worker가 가져가지만 발송 확인은 하지 않는다 (Expo 호출 실패 상황).
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)
+    where token = 'ExponentPushToken[retry-device]'),
+  1,
+  'the worker claims the pending notification'
+);
+select ok(
+  (select delivered_at is null from private.message_push_outbox
+    where recipient_id = '00000000-0000-0000-0000-000000000404'),
+  'claiming alone does not mark the notification as delivered'
+);
+
+-- 확인되지 않은 알림은 임대 시간이 지나면 다시 발송 대상이 된다.
+select is(
+  public.worker_fail_message_pushes(
+    array(select id from private.message_push_outbox
+           where recipient_id = '00000000-0000-0000-0000-000000000404'),
+    'Expo push returned HTTP 502'
+  ),
+  1,
+  'a failed send is recorded instead of being silently dropped'
+);
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)
+    where token = 'ExponentPushToken[retry-device]'),
+  1,
+  'an unconfirmed notification is retried rather than lost'
+);
+
+-- 2회차: 발송을 확인하면 그때 완료된다.
+select is(
+  public.worker_mark_message_pushes_delivered(
+    array(select id from private.message_push_outbox
+           where recipient_id = '00000000-0000-0000-0000-000000000404')
+  ),
+  1,
+  'confirming delivery closes the notification'
+);
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)
+    where token = 'ExponentPushToken[retry-device]'),
+  0,
+  'a confirmed notification is never sent twice'
+);
+
+-- 재시도 상한을 넘기면 포기한다. 알림은 오래될수록 가치가 없다.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000402', true);
+set local role authenticated;
+insert into public.messages (sender_id, recipient_id, body)
+values (
+  '00000000-0000-0000-0000-000000000402',
+  '00000000-0000-0000-0000-000000000404',
+  '재시도 상한 확인용'
+);
+reset role;
+
+update private.message_push_outbox
+   set attempts = public.message_push_max_attempts()
+ where delivered_at is null and recipient_id = '00000000-0000-0000-0000-000000000404';
+
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)),
+  0,
+  'a notification that exhausted its retries is not claimed again'
+);
+select is(
+  (select last_error from private.message_push_outbox
+    where delivered_at is null and abandoned_at is not null
+      and recipient_id = '00000000-0000-0000-0000-000000000404'),
+  'max_attempts_exhausted',
+  'giving up records why, instead of leaving the row pending forever'
+);
+
+-- 보낼 기기가 없는 알림도 큐에 영원히 남지 않는다.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000404', true);
+set local role authenticated;
+select lives_ok(
+  $$select public.unregister_push_token('ExponentPushToken[retry-device]')$$,
+  'the recipient signs out of their device'
+);
+reset role;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000402', true);
+set local role authenticated;
+insert into public.messages (sender_id, recipient_id, body)
+values (
+  '00000000-0000-0000-0000-000000000402',
+  '00000000-0000-0000-0000-000000000404',
+  '기기 없는 상태 확인용'
+);
+reset role;
+
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)),
+  0,
+  'nothing is claimed when the recipient has no device'
+);
+select is(
+  (select count(*)::integer from private.message_push_outbox
+    where recipient_id = '00000000-0000-0000-0000-000000000404'
+      and abandoned_at is null and delivered_at is null),
+  0,
+  'an undeliverable notification is abandoned instead of retrying forever'
+);
+
 select * from finish();
 rollback;
