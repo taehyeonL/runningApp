@@ -21,8 +21,29 @@ select ok(
   'sanction history with internal notes stays server-side'
 );
 select ok(
-  has_table_privilege('authenticated', 'public.my_moderation_notices', 'SELECT'),
+  has_table_privilege('authenticated', 'public.user_moderation_notices', 'SELECT'),
   'a sanctioned user can read their own notice'
+);
+-- 같은 사실을 보여주는 창구가 둘이면 한쪽만 고쳐진다. 실제로 origin 필터가
+-- 없는 옛 뷰를 통해 자동 임시 제한이 그대로 노출되고 있었다.
+select is(
+  (select count(*)::integer from information_schema.views
+    where table_schema = 'public' and table_name = 'my_moderation_notices'),
+  0,
+  'there is exactly one place that shows a user their sanctions'
+);
+-- Supabase 기본 권한은 새 뷰에 ALL을 준다. 회수를 빠뜨린 뷰를 통째로 잡는다.
+select is(
+  (select coalesce(string_agg(distinct table_name, ', ' order by table_name), '')
+     from information_schema.role_table_grants g
+    where g.table_schema = 'public'
+      and g.grantee in ('anon', 'authenticated')
+      and g.privilege_type <> 'SELECT'
+      and g.table_name in (
+        select table_name from information_schema.views where table_schema = 'public'
+      )),
+  '',
+  'no view hands clients anything beyond SELECT'
 );
 select ok(
   not has_table_privilege('authenticated', 'public.moderation_actions', 'SELECT'),
@@ -120,7 +141,7 @@ select is(
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000501', true);
 set local role authenticated;
 select is(
-  (select count(*)::integer from public.my_moderation_notices),
+  (select count(*)::integer from public.user_moderation_notices),
   0,
   'an automatic hold is not shown to the user as a confirmed sanction'
 );
@@ -240,16 +261,16 @@ select is(
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000504', true);
 set local role authenticated;
 select is(
-  (select count(*)::integer from public.my_moderation_notices),
+  (select count(*)::integer from public.user_moderation_notices),
   1,
   'the sanctioned user is told about the confirmed sanction'
 );
 select ok(
-  (select user_notice like '%이의%' from public.my_moderation_notices limit 1),
+  (select user_notice like '%이의%' from public.user_moderation_notices limit 1),
   'the notice explains how to appeal'
 );
 select ok(
-  (select ends_at is not null from public.my_moderation_notices limit 1),
+  (select ends_at is not null from public.user_moderation_notices limit 1),
   'the notice states when the restriction ends'
 );
 reset role;
@@ -258,7 +279,7 @@ reset role;
 select ok(
   not exists (
     select 1 from information_schema.columns
-     where table_name = 'my_moderation_notices'
+     where table_name = 'user_moderation_notices'
        and column_name in ('internal_notes', 'report_id', 'subject_id')
   ),
   'the notice view exposes neither internal notes nor the reporter link'

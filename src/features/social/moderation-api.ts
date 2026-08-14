@@ -61,7 +61,7 @@ export async function blockUser(userId: string, blockedId: string) {
 // 노출하지 않으므로 여기서 걸러낼 것도 없다.
 export async function fetchModerationNotices(): Promise<ModerationNotice[]> {
   const { data, error } = await requireClient()
-    .from('my_moderation_notices')
+    .from('user_moderation_notices')
     .select('id,action_type,starts_at,ends_at,user_notice,created_at');
   if (error) throw error;
   return ((data ?? []) as NoticeRow[]).map((row) => ({
