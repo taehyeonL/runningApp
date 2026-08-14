@@ -294,5 +294,53 @@ select is(
 );
 reset role;
 
+-- ---------------------------------------------------------------------------
+-- 차단하면 알림도 멈춘다.
+-- ---------------------------------------------------------------------------
+-- 대화 목록과 메시지 조회는 차단을 반영하지만 알림 발송이 별도 경로라, 차단
+-- 전에 도착한 메시지의 알림이 뒤늦게 나가면 차단한 사람의 닉네임이 잠금화면에
+-- 뜬다. 열 수도 없는 대화에 대한 알림이므로 발송 대상에서 빠져야 한다.
+insert into public.friendships (user_one_id, user_two_id)
+values (
+  '00000000-0000-0000-0000-000000000401',
+  '00000000-0000-0000-0000-000000000403'
+);
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000403', true);
+set local role authenticated;
+insert into public.messages (sender_id, recipient_id, body)
+values (
+  '00000000-0000-0000-0000-000000000403',
+  '00000000-0000-0000-0000-000000000401',
+  '차단 직전에 보낸 메시지'
+);
+reset role;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000401', true);
+set local role authenticated;
+select lives_ok(
+  $$select public.register_push_token('ExponentPushToken[block-test]', 'ios')$$,
+  'the recipient has a registered device'
+);
+insert into public.user_blocks (blocker_id, blocked_id)
+values (
+  '00000000-0000-0000-0000-000000000401',
+  '00000000-0000-0000-0000-000000000403'
+);
+select is(
+  (select count(*)::integer from public.list_chat_threads()
+    where partner_id = '00000000-0000-0000-0000-000000000403'),
+  0,
+  'blocking removes the conversation from the list'
+);
+reset role;
+
+select is(
+  (select count(*)::integer from public.worker_claim_message_pushes(10)
+    where sender_nickname = '무관계'),
+  0,
+  'no notification is sent for a conversation the block already closed'
+);
+
 select * from finish();
 rollback;
