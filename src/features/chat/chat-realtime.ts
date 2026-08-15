@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+import { requireUuid } from '../../lib/ids';
 import { supabase } from '../../lib/supabase';
 import type { ChatMessage } from './chat-api';
 
@@ -36,6 +37,9 @@ export function subscribeToChat(userId: string, handlers: {
 }): () => void {
   const client = supabase;
   if (!client) return () => undefined;
+
+  // Realtime 필터는 문자열로만 받을 수 있어 값을 넣기 전에 형식을 확인한다.
+  requireUuid(userId, '내 계정');
 
   const channel: RealtimeChannel = client
     .channel(`chat:${userId}`)

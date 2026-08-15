@@ -1,3 +1,4 @@
+import { requireUuid } from '../../lib/ids';
 import { supabase } from '../../lib/supabase';
 
 export type ChatThread = {
@@ -80,13 +81,19 @@ export async function fetchMessages(
   options: { before?: string; limit?: number } = {},
 ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
   const limit = options.limit ?? MESSAGE_PAGE_SIZE;
+  // 두 사람 사이의 대화는 "보낸 사람과 받는 사람이 모두 이 둘"과 같다.
+  // messages에 sender_id <> recipient_id 제약이 있어 (나→상대), (상대→나)
+  // 두 조합만 남는다. or() 문자열을 직접 조립하지 않아도 되므로, 값이 필터
+  // 문법으로 해석될 여지 자체가 없어진다.
+  const pair = [
+    requireUuid(userId, '내 계정'),
+    requireUuid(partnerId, '상대 계정'),
+  ];
   let query = requireClient()
     .from('messages')
     .select('id,sender_id,recipient_id,body,created_at,read_at')
-    .or(
-      `and(sender_id.eq.${userId},recipient_id.eq.${partnerId}),`
-      + `and(sender_id.eq.${partnerId},recipient_id.eq.${userId})`,
-    )
+    .in('sender_id', pair)
+    .in('recipient_id', pair)
     .order('created_at', { ascending: false })
     // 한 건 더 받아 다음 페이지가 있는지 판단한다.
     .limit(limit + 1);
