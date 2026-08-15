@@ -1,19 +1,32 @@
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { supabase } from '../../lib/supabase';
 
-// 알림은 "새 메시지가 있다"까지만 알린다. 본문은 서버가 보내지 않으므로
-// 잠금화면이나 알림 서버에 대화 내용이 남지 않는다.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: true,
-  }),
-});
+// expo-notifications는 최상위에서 import하지 않는다. Expo Go(SDK 53+)에서는
+// 이 모듈을 불러오는 것만으로 원격 푸시 미지원 예외를 던지는데, 그러면 아래의
+// "Expo Go면 조용히 비활성화" 검사가 실행되기도 전에 앱 전체가 뜨지 않는다.
+// 지원되는 환경으로 판별된 뒤에 동적으로 불러온다.
+type NotificationsModule = typeof import('expo-notifications');
+
+let notificationsModule: NotificationsModule | null = null;
+
+async function loadNotifications(): Promise<NotificationsModule> {
+  if (notificationsModule) return notificationsModule;
+  const loaded = await import('expo-notifications');
+  // 알림은 "새 메시지가 있다"까지만 알린다. 본문은 서버가 보내지 않으므로
+  // 잠금화면이나 알림 서버에 대화 내용이 남지 않는다.
+  loaded.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: true,
+    }),
+  });
+  notificationsModule = loaded;
+  return loaded;
+}
 
 export type PushRegistration =
   | { status: 'registered'; token: string }
@@ -51,23 +64,25 @@ export async function registerForMessagePush(): Promise<PushRegistration> {
     };
   }
 
-  const existing = await Notifications.getPermissionsAsync();
+  const notifications = await loadNotifications();
+
+  const existing = await notifications.getPermissionsAsync();
   const permission = existing.granted
     ? existing
-    : await Notifications.requestPermissionsAsync({
+    : await notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowBadge: true, allowSound: true },
     });
   if (!permission.granted) return { status: 'denied' };
 
   // Android 8.0부터 모든 알림은 채널에 속해야 한다.
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('messages', {
+    await notifications.setNotificationChannelAsync('messages', {
       name: '메시지 알림',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: notifications.AndroidImportance.DEFAULT,
     });
   }
 
-  const token = await Notifications.getExpoPushTokenAsync({ projectId: id });
+  const token = await notifications.getExpoPushTokenAsync({ projectId: id });
   await requireClient().rpc('register_push_token', {
     p_token: token.data,
     p_platform: Platform.OS === 'ios' ? 'ios' : 'android',
