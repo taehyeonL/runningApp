@@ -293,5 +293,37 @@ select is(
   'blocking physically removes both directions of the candidate pair'
 );
 
+-- ---------------------------------------------------------------------------
+-- 접근 판정은 한 벌만 존재해야 한다.
+-- ---------------------------------------------------------------------------
+-- 이 저장소에서 반복된 사고가 전부 "같은 판정이 여러 벌 있고 한쪽만 고쳐졌다"
+-- 였다. is_pair_visible / can_send_message / is_request_eligible는 private으로
+-- 옮긴 뒤에도 public 사본이 남아 두 벌로 유지되고 있었다. 같은 이름이 두 스키마에
+-- 동시에 존재하면 새 정책이 낡은 사본에 연결돼도 아무도 알아채지 못한다.
+select is(
+  (select coalesce(string_agg(proname, ', ' order by proname), '')
+     from (
+       select p.proname
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where p.prokind = 'f'
+          and n.nspname in ('public', 'private')
+        group by p.proname
+       having count(distinct n.nspname) > 1
+     ) duplicated),
+  '',
+  'no access decision exists in both public and private'
+);
+
+-- 살아있는 정책·뷰가 실제로 private 쪽을 보고 있는지도 고정한다.
+select ok(
+  exists (
+    select 1 from pg_policies
+     where schemaname = 'public'
+       and (coalesce(qual, '') || coalesce(with_check, '')) like '%private.is_pair_visible%'
+  ),
+  'discovery policies decide visibility through the private helper'
+);
+
 select * from finish();
 rollback;
