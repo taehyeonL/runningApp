@@ -23,18 +23,26 @@ export function AppShell({
   children,
   screen,
   showNavigation,
+  scrollable = true,
   onNavigate,
 }: PropsWithChildren<{
   screen: Screen;
   showNavigation: boolean;
+  // 화면이 스스로 가상화 목록을 관리해야 하면 껍데기 ScrollView를 비운다.
+  // ScrollView 안에 같은 방향의 FlatList를 넣으면 가상화가 무력화된다.
+  scrollable?: boolean;
   onNavigate: (screen: Screen) => void;
 }>) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {children}
-      </ScrollView>
+      {scrollable ? (
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {children}
+        </ScrollView>
+      ) : (
+        <View style={styles.shellPlain}>{children}</View>
+      )}
       {showNavigation ? (
         <BottomNavigation activeScreen={screen} onNavigate={onNavigate} />
       ) : null}

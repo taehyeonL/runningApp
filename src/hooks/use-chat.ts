@@ -19,6 +19,8 @@ export function useChat(userId?: string) {
   const [openPartnerId, setOpenPartnerId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -84,7 +86,9 @@ export function useChat(userId?: string) {
     setError(null);
     setNotice(null);
     try {
-      setMessages(await fetchMessages(userId, partnerId));
+      const page = await fetchMessages(userId, partnerId);
+      setMessages(page.messages);
+      setHasOlder(page.hasMore);
       await markMessagesRead(partnerId).catch(() => 0);
       await refreshThreads();
     } catch (reason) {
@@ -94,9 +98,31 @@ export function useChat(userId?: string) {
     }
   }, [refreshThreads, userId]);
 
+  // 위로 스크롤해 과거를 더 불러온다. 가장 오래된 메시지 시각을 커서로 쓰므로
+  // 그 사이에 새 메시지가 도착해도 페이지가 어긋나지 않는다.
+  const loadOlder = useCallback(async () => {
+    if (!userId || !openPartnerId || isLoadingOlder || !hasOlder) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    setIsLoadingOlder(true);
+    try {
+      const page = await fetchMessages(userId, openPartnerId, { before: oldest.createdAt });
+      setMessages((current) => {
+        const known = new Set(current.map((item) => item.id));
+        return [...page.messages.filter((item) => !known.has(item.id)), ...current];
+      });
+      setHasOlder(page.hasMore);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [hasOlder, isLoadingOlder, messages, openPartnerId, userId]);
+
   const closeThread = useCallback(() => {
     setOpenPartnerId(null);
     setMessages([]);
+    setHasOlder(false);
     setNotice(null);
   }, []);
 
@@ -106,7 +132,14 @@ export function useChat(userId?: string) {
     setError(null);
     try {
       await sendMessage(userId, openPartnerId, body);
-      setMessages(await fetchMessages(userId, openPartnerId));
+      // 최신 페이지만 다시 읽고 병합한다. 통째로 갈아끼우면 위로 스크롤해
+      // 불러온 과거 메시지가 사라진다.
+      const page = await fetchMessages(userId, openPartnerId);
+      setMessages((current) => {
+        const known = new Set(current.map((item) => item.id));
+        const merged = [...current, ...page.messages.filter((item) => !known.has(item.id))];
+        return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      });
       await refreshThreads();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -142,11 +175,14 @@ export function useChat(userId?: string) {
     totalUnread,
     isLoading,
     isSending,
+    isLoadingOlder,
+    hasOlder,
     error,
     notice,
     refreshThreads,
     openThread,
     closeThread,
+    loadOlder,
     send,
     report,
   };

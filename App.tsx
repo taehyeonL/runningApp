@@ -378,7 +378,13 @@ export default function App() {
   }
 
   return (
-    <AppShell screen={screen} showNavigation={screensWithBottomNavigation.has(screen)} onNavigate={go}>
+    <AppShell
+      screen={screen}
+      showNavigation={screensWithBottomNavigation.has(screen)}
+      // 대화 화면은 자체 가상화 목록을 쓰므로 껍데기 스크롤을 비운다.
+      scrollable={screen !== 'chatThread'}
+      onNavigate={go}
+    >
       {content}
     </AppShell>
   );

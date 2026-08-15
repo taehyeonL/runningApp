@@ -1,5 +1,14 @@
-import { useState } from 'react';
-import { Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { reportReasons, type ChatMessage, type ReportReason } from '../features/chat/chat-api';
 import type { ChatController } from '../hooks/use-chat';
@@ -115,8 +124,13 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
     );
   };
 
-  return (
-    <>
+  // 목록은 inverted로 그린다. 대화는 최신 메시지가 바닥에 있어야 하는데,
+  // 일반 목록이면 열 때마다 맨 위(가장 오래된 메시지)에서 시작해 매번 끝까지
+  // 스크롤해야 한다. inverted는 데이터를 뒤집어 자연스럽게 바닥에서 시작한다.
+  const newestFirst = useMemo(() => [...chat.messages].reverse(), [chat.messages]);
+
+  const intro = (
+    <View style={styles.threadIntro}>
       <Back onPress={onBack} />
       <Kicker>대화</Kicker>
       <Text style={styles.pageTitle}>{partner?.partnerNickname ?? '대화'}</Text>
@@ -137,29 +151,53 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
           </View>
         </Card>
       ) : null}
+      {chat.isLoadingOlder ? (
+        <View style={styles.olderNotice}><Text style={styles.caption}>이전 대화를 불러오는 중…</Text></View>
+      ) : null}
+    </View>
+  );
 
-      {chat.messages.map((message) => {
-        const mine = message.senderId === userId;
-        const selected = reportTarget?.id === message.id;
-        return (
-          <Pressable
-            key={message.id}
-            onPress={() => (mine ? undefined : startReport(message))}
-            style={[styles.bubbleRow, mine && styles.bubbleMineRow]}
-          >
-            <View style={[
-              styles.bubble,
-              mine ? styles.bubbleMine : styles.bubbleTheirs,
-              selected && styles.bubbleSelected,
-            ]}>
-              <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{message.body}</Text>
-              <Text style={[styles.bubbleMeta, mine && styles.bubbleMetaMine]}>
-                {messageTime(message.createdAt)}{mine && message.readAt ? ' · 읽음' : ''}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
+  return (
+    <KeyboardAvoidingView
+      style={styles.threadList}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <FlatList
+        style={styles.threadList}
+        contentContainerStyle={styles.threadListContent}
+        data={newestFirst}
+        inverted
+        keyExtractor={(message) => message.id}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        // inverted라 목록의 "끝"은 가장 오래된 메시지 쪽이다. 거기 닿으면
+        // 이전 대화를 이어 붙인다.
+        onEndReached={() => void chat.loadOlder()}
+        onEndReachedThreshold={0.4}
+        // inverted에서 헤더는 화면 아래, 푸터는 화면 위에 그려진다.
+        ListFooterComponent={intro}
+        renderItem={({ item: message }) => {
+          const mine = message.senderId === userId;
+          const selected = reportTarget?.id === message.id;
+          return (
+            <Pressable
+              onPress={() => (mine ? undefined : startReport(message))}
+              style={[styles.bubbleRow, mine && styles.bubbleMineRow]}
+            >
+              <View style={[
+                styles.bubble,
+                mine ? styles.bubbleMine : styles.bubbleTheirs,
+                selected && styles.bubbleSelected,
+              ]}>
+                <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{message.body}</Text>
+                <Text style={[styles.bubbleMeta, mine && styles.bubbleMetaMine]}>
+                  {messageTime(message.createdAt)}{mine && message.readAt ? ' · 읽음' : ''}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        }}
+      />
 
       {reportTarget ? (
         <>
@@ -219,6 +257,6 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
           </Pressable>
         </View>
       )}
-    </>
+    </KeyboardAvoidingView>
   );
 }

@@ -67,26 +67,47 @@ export async function fetchChatThreads(): Promise<ChatThread[]> {
 }
 
 // 대화는 상호 수락된 상대에게만 열린다. 서버 정책이 그것을 강제하므로
+export const MESSAGE_PAGE_SIZE = 40;
+
 // 여기서는 양방향 조건만 걸고 접근 판단은 하지 않는다.
-export async function fetchMessages(userId: string, partnerId: string): Promise<ChatMessage[]> {
-  const { data, error } = await requireClient()
+//
+// 정렬은 항상 최신순으로 가져온 뒤 뒤집는다. 오름차순 + limit으로 가져오면
+// 가장 "오래된" N건이 잡혀서, 대화가 길어질수록 사용자는 옛날 메시지만 보고
+// 정작 최근 대화를 못 본다.
+export async function fetchMessages(
+  userId: string,
+  partnerId: string,
+  options: { before?: string; limit?: number } = {},
+): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
+  const limit = options.limit ?? MESSAGE_PAGE_SIZE;
+  let query = requireClient()
     .from('messages')
     .select('id,sender_id,recipient_id,body,created_at,read_at')
     .or(
       `and(sender_id.eq.${userId},recipient_id.eq.${partnerId}),`
       + `and(sender_id.eq.${partnerId},recipient_id.eq.${userId})`,
     )
-    .order('created_at', { ascending: true })
-    .limit(200);
+    .order('created_at', { ascending: false })
+    // 한 건 더 받아 다음 페이지가 있는지 판단한다.
+    .limit(limit + 1);
+  if (options.before) query = query.lt('created_at', options.before);
+
+  const { data, error } = await query;
   if (error) throw error;
-  return ((data ?? []) as MessageRow[]).map((row) => ({
-    id: row.id,
-    senderId: row.sender_id,
-    recipientId: row.recipient_id,
-    body: row.body,
-    createdAt: row.created_at,
-    readAt: row.read_at,
-  }));
+
+  const rows = (data ?? []) as MessageRow[];
+  const hasMore = rows.length > limit;
+  return {
+    hasMore,
+    messages: rows.slice(0, limit).reverse().map((row) => ({
+      id: row.id,
+      senderId: row.sender_id,
+      recipientId: row.recipient_id,
+      body: row.body,
+      createdAt: row.created_at,
+      readAt: row.read_at,
+    })),
+  };
 }
 
 export async function sendMessage(userId: string, partnerId: string, body: string) {
