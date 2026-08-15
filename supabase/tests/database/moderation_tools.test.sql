@@ -7,17 +7,17 @@ select no_plan();
 -- 권한: 운영 도구는 앱 사용자에게 어떤 형태로도 열리지 않는다.
 -- ---------------------------------------------------------------------------
 select ok(
-  not has_function_privilege('authenticated', 'public.operator_review_queue(text,integer)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.operator_review_queue(text,integer)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.operator_review_queue(uuid,text,integer)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.operator_review_queue(uuid,text,integer)', 'EXECUTE'),
   'the operator review queue is never reachable from the app'
 );
 select ok(
-  has_function_privilege('service_role', 'public.operator_resolve_report(uuid,text,integer,text,text)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public.operator_resolve_report(uuid,text,integer,text,text)', 'EXECUTE'),
+  has_function_privilege('service_role', 'public.operator_resolve_report(uuid,uuid,text,integer,text,text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.operator_resolve_report(uuid,uuid,text,integer,text,text)', 'EXECUTE'),
   'only operators can hand down a sanction'
 );
 select ok(
-  not has_function_privilege('authenticated', 'public.operator_sanction_history(uuid)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.operator_sanction_history(uuid,uuid)', 'EXECUTE'),
   'sanction history with internal notes stays server-side'
 );
 select ok(
@@ -188,26 +188,61 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
+-- 운영자 명부: service_role 키만으로는 판단을 내릴 수 없다.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, email)
+values
+  ('00000000-0000-0000-0000-000000000509', 'operator@example.test'),
+  ('00000000-0000-0000-0000-000000000510', 'ex-operator@example.test');
+insert into public.profiles (id, nickname, birth_year, age_verified_at)
+values
+  ('00000000-0000-0000-0000-000000000509', '운영자', 1985, now()),
+  ('00000000-0000-0000-0000-000000000510', '퇴사자', 1985, now());
+insert into public.operators (user_id, label, active)
+values
+  ('00000000-0000-0000-0000-000000000509', '운영자 김', true),
+  ('00000000-0000-0000-0000-000000000510', '퇴사한 운영자', false);
+
+select ok(
+  not has_table_privilege('authenticated', 'public.operators', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.moderation_audit_log', 'SELECT'),
+  'the operator roster and audit trail are never visible to app users'
+);
+-- 권한을 회수당한 운영자는 키가 남아 있어도 아무것도 하지 못해야 한다.
+select throws_ok(
+  $$select public.operator_review_queue('00000000-0000-0000-0000-000000000510', 'under_review', 50)$$,
+  '42501',
+  null,
+  'a deactivated operator cannot use the tools'
+);
+select throws_ok(
+  $$select public.operator_review_queue('00000000-0000-0000-0000-000000000501', 'under_review', 50)$$,
+  '42501',
+  null,
+  'an ordinary user id cannot be passed off as an operator'
+);
+
+-- ---------------------------------------------------------------------------
 -- 운영자 검토 큐
 -- ---------------------------------------------------------------------------
 select ok(
-  (select count(*) from public.operator_review_queue('under_review', 50)) > 0,
+  (select count(*) from public.operator_review_queue('00000000-0000-0000-0000-000000000509', 'under_review', 50)) > 0,
   'the accumulated reports appear in the operator queue'
 );
 select is(
-  (select distinct_reporters_30d from public.operator_review_queue('under_review', 50)
+  (select distinct_reporters_30d from public.operator_review_queue('00000000-0000-0000-0000-000000000509', 'under_review', 50)
     where subject_id = '00000000-0000-0000-0000-000000000501' limit 1),
   2,
   'the queue shows how many different people reported the subject'
 );
 select is(
-  (select confirmed_violations_90d from public.operator_review_queue('under_review', 50)
+  (select confirmed_violations_90d from public.operator_review_queue('00000000-0000-0000-0000-000000000509', 'under_review', 50)
     where subject_id = '00000000-0000-0000-0000-000000000501' limit 1),
   0,
   'an automatic hold is not counted as a confirmed violation'
 );
 select ok(
-  (select currently_restricted from public.operator_review_queue('under_review', 50)
+  (select currently_restricted from public.operator_review_queue('00000000-0000-0000-0000-000000000509', 'under_review', 50)
     where subject_id = '00000000-0000-0000-0000-000000000501' limit 1),
   'the queue shows that exposure is already on hold'
 );
@@ -217,6 +252,7 @@ select ok(
 -- ---------------------------------------------------------------------------
 select is(
   public.operator_resolve_report(
+    '00000000-0000-0000-0000-000000000509',
     (select id from public.reports
       where reported_id = '00000000-0000-0000-0000-000000000501' limit 1),
     'dismissed'
@@ -244,6 +280,7 @@ select ok(
 -- ---------------------------------------------------------------------------
 select ok(
   public.operator_resolve_report(
+    '00000000-0000-0000-0000-000000000509',
     (select id from public.reports where reported_id = '00000000-0000-0000-0000-000000000504' limit 1),
     'suspension',
     30,
@@ -287,15 +324,73 @@ select ok(
 
 -- 운영자는 자동 조치와 확정 제재를 구분해 이력을 본다.
 select is(
-  (select count(*)::integer from public.operator_sanction_history('00000000-0000-0000-0000-000000000504')),
+  (select count(*)::integer from public.operator_sanction_history('00000000-0000-0000-0000-000000000509', '00000000-0000-0000-0000-000000000504')),
   2,
   'the sanction history keeps both the automatic hold and the confirmed action'
 );
 select is(
-  (select count(*)::integer from public.operator_sanction_history('00000000-0000-0000-0000-000000000504')
+  (select count(*)::integer from public.operator_sanction_history('00000000-0000-0000-0000-000000000509', '00000000-0000-0000-0000-000000000504')
     where origin = 'operator'),
   1,
   'only one of them is a confirmed operator decision'
+);
+
+-- ---------------------------------------------------------------------------
+-- 책임 소재: 누가 내렸는지 남는다.
+-- ---------------------------------------------------------------------------
+-- 사람의 이용을 끊는 도구에 행위자가 없으면 실제 운영에 쓸 수 없다.
+select is(
+  (select decided_by_label from public.moderation_actions
+    where subject_id = '00000000-0000-0000-0000-000000000504'
+      and origin = 'operator'),
+  '운영자 김',
+  'a confirmed sanction records which operator handed it down'
+);
+select ok(
+  (select decided_by is null from public.moderation_actions
+    where subject_id = '00000000-0000-0000-0000-000000000504'
+      and origin = 'auto'),
+  'an automatic hold has no operator attached, because nobody decided it'
+);
+select is(
+  (select count(*)::integer from public.moderation_audit_log
+    where action = 'resolved_report'
+      and operator_id = '00000000-0000-0000-0000-000000000509'),
+  2,
+  'every operator decision is written to the audit trail'
+);
+select is(
+  (select detail ->> 'action_type' from public.moderation_audit_log
+    where action = 'resolved_report'
+      and subject_id = '00000000-0000-0000-0000-000000000504'),
+  'suspension',
+  'the audit entry records what was decided, not just that something was'
+);
+
+-- 내부 메모까지 보이는 조회는 누가 누구를 열어봤는지 남겨야 한다.
+select is(
+  (select count(*)::integer from public.moderation_audit_log
+    where action = 'viewed_sanction_history'
+      and subject_id = '00000000-0000-0000-0000-000000000504'),
+  2,
+  'opening a user sanction history is itself recorded'
+);
+
+-- 운영자 계정이 지워져도 판단 기록은 남아야 한다.
+delete from auth.users where id = '00000000-0000-0000-0000-000000000509';
+select is(
+  -- 판단 2건(기각·정지) + 제재 이력 조회 2건
+  (select count(*)::integer from public.moderation_audit_log
+    where operator_label = '운영자 김'),
+  4,
+  'the audit trail outlives the operator account that produced it'
+);
+select is(
+  (select decided_by_label from public.moderation_actions
+    where subject_id = '00000000-0000-0000-0000-000000000504'
+      and origin = 'operator'),
+  '운영자 김',
+  'a sanction still says who decided it after that operator is removed'
 );
 
 select * from finish();
