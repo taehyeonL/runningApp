@@ -340,5 +340,66 @@ select ok(
   'the surviving report keeps only an anonymised reporter digest'
 );
 
+-- ---------------------------------------------------------------------------
+-- 동의 판정은 결정적이어야 한다.
+-- ---------------------------------------------------------------------------
+-- captured_at 기본값은 트랜잭션 시각이라, 같은 트랜잭션에서 같은 유형의 동의와
+-- 철회가 기록되면 두 행의 captured_at이 같다. 예전에는 순서를 uuid로 갈라
+-- 어느 쪽이 이길지 알 수 없었다. 위치 수집을 여는 값이므로 뒤에 기록된 쪽이
+-- 항상 이겨야 한다.
+insert into auth.users (id, email)
+values ('00000000-0000-0000-0000-000000000203', 'consent-order@example.test');
+insert into public.profiles (id, nickname, birth_year, age_verified_at)
+values ('00000000-0000-0000-0000-000000000203', '동의순서', 1990, now());
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000203', true);
+set local role authenticated;
+
+-- 같은 트랜잭션, 같은 시각에 동의 → 철회 → 재동의 순으로 기록한다.
+select lives_ok(
+  $$select public.record_consent('location', 'tie-break-v1', true)$$,
+  'the user grants location consent'
+);
+select lives_ok(
+  $$select public.record_consent('location', 'tie-break-v1', false)$$,
+  'the user withdraws it in the same transaction'
+);
+select ok(
+  not public.has_current_consent('location'),
+  'the withdrawal wins because it was recorded last'
+);
+
+select lives_ok(
+  $$select public.record_consent('location', 'tie-break-v1', true)$$,
+  'the user grants it again'
+);
+select ok(
+  public.has_current_consent('location'),
+  'the latest record always wins, regardless of matching timestamps'
+);
+reset role;
+
+-- 같은 captured_at을 가진 행들이 실제로 만들어졌는지 확인한다. 시각이 서로
+-- 달랐다면 이 테스트는 tie-break를 검증하지 못한 셈이 된다.
+select ok(
+  (select count(distinct captured_at) from public.consent_records
+    where user_id = '00000000-0000-0000-0000-000000000203'
+      and consent_type = 'location') = 1,
+  'the three records really do share one timestamp, so the tie-break was exercised'
+);
+
+-- 동의 판정이 여러 곳에 복사되어 있으면 경로마다 답이 갈린다.
+select is(
+  (select count(*)::integer from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private')
+      and p.prokind = 'f'
+      and pg_get_functiondef(p.oid) like '%consent_records%'
+      and p.proname <> 'consent_granted'
+      and p.proname <> 'record_consent'),
+  0,
+  'consent state is decided in exactly one place'
+);
+
 select * from finish();
 rollback;
