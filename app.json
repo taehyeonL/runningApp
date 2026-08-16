@@ -14,7 +14,7 @@
           "location"
         ]
       },
-      "bundleIdentifier": "com.anonymous.runningmate"
+      "bundleIdentifier": "com.lth3723.runningmate"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +31,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "package": "com.anonymous.runningmate"
+      "package": "com.lth3723.runningmate"
     },
     "web": {
       "favicon": "./assets/favicon.png"
