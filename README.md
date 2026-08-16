@@ -56,6 +56,7 @@ OAuth를 실제로 연결하려면 다음 설정이 필요합니다.
 - development build 백그라운드 기록 및 Expo Go/웹 전경 기록 자동 폴백
 - 네트워크 실패 GPS를 네이티브 SecureStore 암호화 큐에 보관하고 idempotent 재전송한 뒤 서버 검증 큐에 제출
 - 소유자 RLS 범위의 실제 러닝 이력으로 홈 월간 거리·횟수·연속 일수와 완료 상세 표시
+- 본인만 볼 수 있는 러닝 경로 지도 (iOS Apple Maps / Android Google Maps, 파기 후에는 사유 안내)
 - 클릭 가능한 홈, 러닝 종료, 발견, 같이 뛰기 요청, 프로필/로그 공개 설정, 신고/차단 화면
 - 앱 조정 계층, 인증·러닝·소셜 화면, 공용 UI·스타일·표시 포맷을 분리한 화면 구조
 - `profiles`, `running_sessions`, `location_points`, `encounter_candidates`, `connection_requests`, `friendships`, `reports`, `moderation_actions`, `consent_records`를 포함한 SQL migration
@@ -67,9 +68,9 @@ OAuth를 실제로 연결하려면 다음 설정이 필요합니다.
 
 ## 안전 설계 요약
 
-- `location_points`는 본인과 service role 서버 처리만 접근합니다. 발견 UI에는 이 테이블을 절대 join하지 않습니다.
+- `location_points`는 본인과 service role 서버 처리만 접근합니다. 발견 UI에는 이 테이블을 절대 join하지 않습니다. 경로 지도(`src/ui/run-route-map.tsx`)는 이 규칙의 예외가 아니라 그 안입니다. 내 기록 화면에서만 열리며, 타인에게 보이는 어떤 화면에도 붙이지 않습니다.
 - 발견 결과 `encounter_candidates`에는 “잘 맞음”, 반복 교차 횟수, 추상화된 근거만 저장합니다. 정확 좌표·시각·원본 경로·최단거리는 저장하거나 노출하지 않습니다.
-- 무료 사용자는 서버가 판정한 최근 30일 유효 반복 교차 **5회 이상** 후보에게 요청할 수 있습니다. 이 규칙은 `is_request_eligible()` RLS 검사에 반영했습니다.
+- 무료 사용자는 서버가 판정한 최근 30일 유효 반복 교차 **3회 이상** 후보에게 요청할 수 있습니다. 기준값은 `public.repeat_encounter_threshold()` 한 곳에만 있고, `encounter_candidates.request_eligible`은 트리거가 그 값에서 파생시킵니다. `private.is_request_eligible()`과 `send_connection_request()`는 횟수를 다시 세지 않고 그 열만 읽습니다.
 - 요청이 수락되면 `accept_connection_request()`가 friendship을 만들며, 이후에만 `messages` 읽기/쓰기가 허용됩니다.
 - 차단은 즉시 상호 발견·요청을 막도록 `user_blocks`에 별도로 모델링했습니다. 신고와 제재는 운영 검토를 전제로 합니다.
 - 요청은 `pending`에서 `accepted / declined / cancelled / expired`로만 한 번 전이하며, 모든 변경은 서버 전용 `connection_request_events`에 기록합니다.

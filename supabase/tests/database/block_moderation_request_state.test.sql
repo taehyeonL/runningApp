@@ -315,5 +315,116 @@ select is(
   'messages involving a suspended account are hidden'
 );
 
+-- 요청 자격 기준은 public.repeat_encounter_threshold() 한 곳에서만 결정된다.
+-- 숫자를 직접 쓰지 않고 함수를 호출해 비교하므로, 기준이 다시 바뀌어도 이 테스트는
+-- 그대로 유효하다. 반대로 판정 지점 중 하나만 옛 숫자로 남으면 여기서 깨진다.
+reset role;
+
+insert into auth.users (id, email)
+values
+  ('00000000-0000-0000-0000-000000000105', 'threshold-viewer@example.test'),
+  ('00000000-0000-0000-0000-000000000106', 'threshold-at@example.test'),
+  ('00000000-0000-0000-0000-000000000107', 'threshold-below@example.test');
+
+insert into public.profiles (id, nickname, birth_year, age_verified_at)
+values
+  ('00000000-0000-0000-0000-000000000105', '기준뷰어', 1990, now()),
+  ('00000000-0000-0000-0000-000000000106', '기준충족', 1991, now()),
+  ('00000000-0000-0000-0000-000000000107', '기준미달', 1992, now());
+
+insert into public.consent_records (user_id, consent_type, policy_version, granted)
+select user_id, consent_type, 'state-test-v1', true
+  from (
+    values
+      ('00000000-0000-0000-0000-000000000105'::uuid),
+      ('00000000-0000-0000-0000-000000000106'::uuid),
+      ('00000000-0000-0000-0000-000000000107'::uuid)
+  ) as users(user_id)
+  cross join (
+    values ('terms'), ('privacy'), ('location')
+  ) as consents(consent_type);
+
+-- request_eligible 을 일부러 반대로 넣는다. 트리거가 횟수에서 다시 파생시키지
+-- 않으면 아래 두 단언이 모두 뒤집힌다.
+insert into public.encounter_candidates (
+  id, viewer_id, candidate_profile_id, similarity_label,
+  repeat_encounters_30d, request_eligible, expires_at
+) values
+  (
+    '10000000-0000-0000-0000-000000000106',
+    '00000000-0000-0000-0000-000000000105',
+    '00000000-0000-0000-0000-000000000106',
+    'good_match', public.repeat_encounter_threshold(), false, now() + interval '7 days'
+  ),
+  (
+    '10000000-0000-0000-0000-000000000107',
+    '00000000-0000-0000-0000-000000000105',
+    '00000000-0000-0000-0000-000000000107',
+    'good_match', public.repeat_encounter_threshold() - 1, true, now() + interval '7 days'
+  );
+
+select is(
+  (select request_eligible from public.encounter_candidates
+    where id = '10000000-0000-0000-0000-000000000106'),
+  true,
+  'a candidate at the threshold is derived eligible even when written as false'
+);
+select is(
+  (select request_eligible from public.encounter_candidates
+    where id = '10000000-0000-0000-0000-000000000107'),
+  false,
+  'a candidate below the threshold is derived ineligible even when written as true'
+);
+
+-- worker는 on conflict do update 로 같은 행을 다시 쓴다. before insert 만 막고
+-- update 를 놓치면 재검출 한 번에 옛 기준이 되살아난다.
+insert into public.encounter_candidates (
+  viewer_id, candidate_profile_id, similarity_label,
+  repeat_encounters_30d, request_eligible, expires_at
+) values (
+  '00000000-0000-0000-0000-000000000105',
+  '00000000-0000-0000-0000-000000000106',
+  'good_match', public.repeat_encounter_threshold(), false, now() + interval '7 days'
+)
+on conflict (viewer_id, candidate_profile_id) do update
+  set repeat_encounters_30d = excluded.repeat_encounters_30d,
+      request_eligible = excluded.request_eligible;
+
+select is(
+  (select request_eligible from public.encounter_candidates
+    where id = '10000000-0000-0000-0000-000000000106'),
+  true,
+  'a re-detected candidate keeps the derived eligibility on conflict update'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000105',
+  true
+);
+set local role authenticated;
+
+select isnt(
+  public.send_connection_request(
+    '00000000-0000-0000-0000-000000000106',
+    '10000000-0000-0000-0000-000000000106',
+    'weekend_5k'
+  ),
+  null,
+  'a request is accepted at exactly the repeat encounter threshold'
+);
+select throws_ok(
+  $$
+    select public.send_connection_request(
+      '00000000-0000-0000-0000-000000000107',
+      '10000000-0000-0000-0000-000000000107',
+      'weekend_5k'
+    )
+  $$,
+  '42501',
+  'Request is not eligible',
+  'a request one encounter below the threshold is refused'
+);
+
 select * from finish();
 rollback;

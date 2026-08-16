@@ -1,4 +1,19 @@
 project_id = "running-mate"
 
+[auth]
+# 앱은 네이티브에서 runningmate:// 스킴으로 콜백을 받는다. 허용 목록에 없으면
+# 제공자 인증을 마쳐도 앱으로 돌아오지 못한다. Expo Go는 이 스킴을 등록하지
+# 않으므로 소셜 로그인 확인에는 개발 빌드가 필요하다.
+additional_redirect_urls = [
+  "runningmate://auth/callback",
+  "exp://127.0.0.1:8081/--/auth/callback",
+]
+
+[auth.external.google]
+enabled = true
+# 실제 값은 supabase/.env 에만 둔다. 이 파일은 저장소에 올라가므로 참조만 적는다.
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_SECRET)"
+
 [functions.detect-co-running]
 verify_jwt = false

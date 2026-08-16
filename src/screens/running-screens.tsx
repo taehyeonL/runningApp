@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, View } from 'react-native';
 import type { RunListItem } from '../features/running/run-types';
 import type { RunRecorderController } from '../hooks/use-run-recorder';
 import { Back, Card, ChoiceGroup, Kicker, Metric, Notice, PrimaryButton, Section } from '../ui/components';
+import { RunRouteMap } from '../ui/run-route-map';
 import { styles } from '../ui/styles';
 import {
   currentDateLabel,
@@ -129,6 +130,8 @@ export function RunCompleteScreen({ recorder, selectedRun, logBusy, logNotice, o
   const duration = summary?.durationSeconds ?? selectedRun?.durationSeconds ?? 0;
   const pace = summary?.averagePaceSeconds ?? selectedRun?.averagePaceSeconds ?? null;
   const processing = summary?.serverStatus === 'processing' || selectedRun?.status === 'processing';
+  // 방금 끝낸 러닝과 목록에서 다시 연 기록 모두 같은 세션 id로 경로를 그린다.
+  const routeSessionId = selectedRun?.id ?? summary?.sessionId ?? null;
 
   const confirmDelete = () => {
     if (!selectedRun) return;
@@ -150,6 +153,13 @@ export function RunCompleteScreen({ recorder, selectedRun, logBusy, logNotice, o
       <Text style={styles.pageTitle}>{formatDistance(distance)}km 기록했어요!</Text>
       <Text style={styles.pageSub}>{processing ? '기록 업로드를 마쳤고 서버에서 GPS 품질과 매칭 가능 여부를 확인하고 있어요.' : '서버 검증을 완료한 러닝 기록이에요.'}</Text>
       <Card tone="mint"><View style={styles.summaryRow}><Metric label="거리" value={formatDistance(distance)} unit="km" /><Metric label="시간" value={formatDuration(duration)} unit="" /><Metric label="평균 페이스" value={formatPace(pace)} unit="/km" /></View></Card>
+      {routeSessionId ? (
+        <>
+          <Text style={styles.sectionTitle}>내가 달린 경로</Text>
+          <RunRouteMap sessionId={routeSessionId} />
+          <Text style={styles.caption}>이 지도는 나만 볼 수 있어요. 다른 사용자에게는 공개 로그에서도 정확한 경로와 출발·도착 지점을 보여주지 않아요. 원본 좌표는 러닝 시작으로부터 30일이 지나면 파기돼요.</Text>
+        </>
+      ) : null}
       <Text style={styles.sectionTitle}>기록 처리 상태</Text>
       <Card><Text style={styles.listTitle}>{processing ? '서버 검증 중' : '검증 완료'}</Text><Text style={styles.cardText}>{processing ? `3km 이상, 비정상 속도, GPS 정확도를 다시 검증한 뒤 유효한 경우에만 발견 후보를 계산해요.${summary ? ` 수집 ${summary.totalPoints}개 중 클라이언트 품질 통과 ${summary.acceptedPoints}개예요.` : ''}` : '매칭 가능한 기록인지 서버 판정을 마쳤어요. 발견 화면에는 정확한 경로나 시각을 노출하지 않습니다.'}</Text></Card>
 

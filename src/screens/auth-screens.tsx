@@ -90,7 +90,7 @@ export function OnboardingScreen({
       <Text style={styles.helper}>러닝 중 수집한 위치는 기록과 안전한 동선 유사도 계산에만 쓰며, 다른 사람에게 정확한 좌표·시각·경로를 보여주지 않아요.</Text>
 
       <Section title="어떤 관계를 기대하나요?">
-        <ChoiceGroup options={['친구', '러닝 메이트', '연애 가능']} value={intent} onChange={(value) => setIntent(value as OnboardingInput['intent'])} />
+        <ChoiceGroup options={['친구', '러닝 메이트', '연애 가능', '상관없음']} value={intent} onChange={(value) => setIntent(value as OnboardingInput['intent'])} />
       </Section>
       <Section title="나의 러닝 스타일">
         <ChoiceGroup options={['기록보다 꾸준함', '대화 없이 러닝 집중', '주말 러닝 메이트', '초보 환영']} value={runningStyle} onChange={setRunningStyle} />

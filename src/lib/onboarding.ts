@@ -4,7 +4,7 @@ import { POLICY_VERSION } from './policy';
 import { supabase } from './supabase';
 
 export type OnboardingInput = {
-  intent: '친구' | '러닝 메이트' | '연애 가능';
+  intent: '친구' | '러닝 메이트' | '연애 가능' | '상관없음';
   runningStyle: string;
   visibility: '비공개' | '친구 공개' | '프로필 공개' | '매칭 공개';
 };
@@ -19,6 +19,7 @@ const intentValues = {
   친구: 'friends',
   '러닝 메이트': 'running_mate',
   '연애 가능': 'dating_open',
+  상관없음: 'no_preference',
 } as const;
 const styleValues: Record<string, string> = {
   '기록보다 꾸준함': 'consistency_first',

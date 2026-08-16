@@ -279,6 +279,7 @@ const tagLabels: Record<string, string> = {
   friends: '친구',
   running_mate: '러닝 메이트',
   dating_open: '연애 가능',
+  no_preference: '상관없음',
 };
 
 export function RunnerCard({ candidate, expanded = false, onPress }: {

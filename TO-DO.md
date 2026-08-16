@@ -22,6 +22,13 @@
 - [ ] Supabase 개발 프로젝트 생성·migration 적용·일반 사용자 JWT와 service role RLS 분리 테스트
 - [x] OAuth PKCE deep-link 콜백, Expo SecureStore 세션 저장·복원·foreground 갱신 구현
 - [ ] Apple / Kakao / Google 실제 provider client ID/secret 및 redirect allow list 설정과 실계정 검증
+  - [x] Google: 개발 빌드에서 실계정 로그인 확인 (Android 에뮬레이터). 키는 `supabase/.env` 에만 둔다
+  - [ ] Apple, Kakao
+- [ ] PKCE가 `plain` 으로 강등된다. React Native에 WebCrypto가 없어 `S256` 이 아닌
+      평문 방식으로 동작한다 (`WebCrypto API is not supported` 경고). 커스텀 스킴
+      콜백을 쓰는 앱이라 출시 전에 `expo-crypto` 기반 폴리필로 해결해야 한다.
+- [ ] 패키지 식별자가 `expo prebuild` 가 만든 `com.anonymous.runningmate` 이다.
+      스토어에 한 번 올리면 바꿀 수 없으므로 도메인 기반 id로 먼저 교체한다.
 - [x] 온보딩 정보를 `profiles`, `consent_records`에 저장하는 인증 후 플로우 구현
 - [x] 계정 삭제, 위치 동의 철회, 러닝 로그 개별 삭제/공개 범위 변경 API와 UI 구현
 - [x] 차단 시 후보·요청·채팅을 즉시 제외하는 DB 정책과 pgTAP 통합 테스트
@@ -41,6 +48,12 @@
 - [ ] false positive 검증용 폐쇄 베타 데이터셋·임계값·운영 대시보드 정의
 - [x] `encounter_candidates`와 관계 범위 최소 프로필을 실제 발견 카드에 연결
 - [ ] 실제 계정 후보 데이터로 정확 위치·시각 비노출 회귀 테스트
+- [x] 내 러닝 기록에서만 열리는 원본 경로 지도 (`expo-maps`, `src/ui/run-route-map.tsx`)
+  - 본인 전용이다. 발견·프로필·상대 기록 등 타인에게 보이는 화면에서는 절대 쓰지 않는다.
+  - 원본 좌표는 30일 뒤 파기되므로, 그 뒤에는 지도 대신 파기 사유를 안내한다.
+  - [ ] Android는 Google Maps API 키가 있어야 지도가 뜬다. 키를 발급해
+        `app.json`의 `android.config.googleMaps.apiKey`에 넣기 전까지는 안내 문구만 보인다.
+        (iOS는 Apple Maps라 추가 설정 없이 동작한다)
 
 ### P2 — 상호 동의 소셜 경험
 
