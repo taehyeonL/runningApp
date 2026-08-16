@@ -9,6 +9,22 @@ additional_redirect_urls = [
   "exp://127.0.0.1:8081/--/auth/callback",
 ]
 
+[auth.email]
+# 이 제품의 가입 경로는 Apple·카카오·Google 뿐이다 (기획서 §6). 이메일 가입을
+# 열어두면 확인되지 않은 주소로 계정이 생기고, 만 19세 확인·본인 계정 원칙을
+# 우회하는 경로가 하나 더 생긴다.
+#
+# 이 블록을 비워두면 안 된다. `supabase config push` 는 로컬에 적지 않은 값을
+# CLI 기본값으로 간주해 원격에 밀어 넣는다. 실제로 처음 push 했을 때 원격의
+# enable_confirmations 가 false 로, otp_length 가 8 에서 6 으로 내려갔다.
+enable_signup = false
+enable_confirmations = true
+double_confirm_changes = true
+secure_password_change = true
+max_frequency = "1m0s"
+otp_length = 8
+otp_expiry = 3600
+
 [auth.external.google]
 enabled = true
 # 실제 값은 supabase/.env 에만 둔다. 이 파일은 저장소에 올라가므로 참조만 적는다.
