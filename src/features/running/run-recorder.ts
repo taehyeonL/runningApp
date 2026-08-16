@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { Platform, type AppStateStatus } from 'react-native';
 
+import { errorMessage } from '../../lib/errors';
 import { supabase } from '../../lib/supabase';
 import { readActiveRun, replaceActiveRun, updateActiveRun } from './run-storage';
 import type {
@@ -28,14 +29,6 @@ function runDiagnostics(state: ActiveRunState): RunDiagnostics {
     syncFailureCount: 0,
     maxPendingPoints: state.pendingPoints.length,
   };
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === 'object' && 'message' in error) {
-    return String(error.message);
-  }
-  return '알 수 없는 오류가 발생했습니다.';
 }
 
 function haversineMeters(a: StoredRunPoint, b: StoredRunPoint) {

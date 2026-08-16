@@ -15,6 +15,7 @@ import {
 import { readActiveRun, subscribeActiveRun } from '../features/running/run-storage';
 import type { ActiveRunState, RunSummary } from '../features/running/run-types';
 import type { RunListItem } from '../features/running/run-types';
+import { errorMessage } from '../lib/errors';
 import { supabase } from '../lib/supabase';
 
 export function useRunRecorder(userId?: string) {
@@ -52,7 +53,7 @@ export function useRunRecorder(userId?: string) {
         visibility: run.visibility,
       })));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setIsHistoryLoading(false);
     }
@@ -101,7 +102,7 @@ export function useRunRecorder(userId?: string) {
     try {
       return await action();
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
+      const message = errorMessage(reason);
       setError(message);
       throw reason;
     } finally {

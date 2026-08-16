@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 
+import { errorMessage } from '../lib/errors';
 import { supabase } from '../lib/supabase';
 
 export function useAuthSession() {
@@ -25,7 +26,7 @@ export function useAuthSession() {
       .catch((sessionError: unknown) => {
         if (!mounted) return;
         setSession(null);
-        setError(sessionError instanceof Error ? sessionError.message : '로그인 세션을 복원하지 못했습니다.');
+        setError(errorMessage(sessionError, '로그인 세션을 복원하지 못했습니다.'));
         setIsLoading(false);
       });
 

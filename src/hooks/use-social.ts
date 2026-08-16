@@ -10,9 +10,10 @@ import type {
   DiscoveryCandidate,
   RequestTemplateKey,
 } from '../features/social/social-types';
+import { errorMessage } from '../lib/errors';
 
 function socialErrorMessage(reason: unknown) {
-  const message = reason instanceof Error ? reason.message : String(reason);
+  const message = errorMessage(reason);
   if (message.includes('Request is not eligible')) return '아직 같이 뛰기 요청 조건을 충족하지 않았어요.';
   if (message.includes('Daily request limit reached')) return '오늘 보낼 수 있는 요청 수를 모두 사용했어요.';
   if (message.includes('Request cooldown is active') || message.includes('duplicate key')) return '최근 요청한 러너에게는 7일 뒤 다시 요청할 수 있어요.';

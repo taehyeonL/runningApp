@@ -11,6 +11,7 @@ import {
   type ReportReason,
 } from '../features/chat/chat-api';
 import { subscribeToChat } from '../features/chat/chat-realtime';
+import { errorMessage } from '../lib/errors';
 import { supabase } from '../lib/supabase';
 
 export function useChat(userId?: string) {
@@ -34,7 +35,7 @@ export function useChat(userId?: string) {
       setThreads(await fetchChatThreads());
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setIsLoading(false);
     }
@@ -92,7 +93,7 @@ export function useChat(userId?: string) {
       await markMessagesRead(partnerId).catch(() => 0);
       await refreshThreads();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +114,7 @@ export function useChat(userId?: string) {
       });
       setHasOlder(page.hasMore);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setIsLoadingOlder(false);
     }
@@ -142,7 +143,7 @@ export function useChat(userId?: string) {
       });
       await refreshThreads();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
       throw reason;
     } finally {
       setIsSending(false);
@@ -157,7 +158,7 @@ export function useChat(userId?: string) {
       await reportMessage(messageId, reason, details);
       setNotice('신고를 접수했어요. 운영팀이 메시지 원문을 근거로 확인합니다.');
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorMessage(failure));
       throw failure;
     } finally {
       setIsSending(false);

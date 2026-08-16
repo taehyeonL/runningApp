@@ -33,6 +33,7 @@ import { ChatListScreen, ChatThreadScreen } from './src/screens/chat-screens';
 import { LoginScreen, OnboardingScreen, type OnboardingSubmission } from './src/screens/auth-screens';
 import { HomeScreen, RunCompleteScreen, RunScreen } from './src/screens/running-screens';
 import { DiscoverScreen, ProfileScreen, ReportScreen, RequestScreen } from './src/screens/social-screens';
+import { errorMessage } from './src/lib/errors';
 import { AppShell } from './src/ui/components';
 
 export default function App() {
@@ -89,7 +90,7 @@ export default function App() {
           setScreen(completed ? 'home' : 'onboarding');
         }).catch((error) => {
           if (!active) return;
-          setNotice(error instanceof Error ? error.message : '온보딩 상태를 확인하지 못했습니다.');
+          setNotice(errorMessage(error, '온보딩 상태를 확인하지 못했습니다.'));
           setScreen('onboarding');
         });
       }
@@ -188,7 +189,7 @@ export default function App() {
       await saveOnboarding(session, input);
       go('home');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '온보딩 정보를 저장하지 못했습니다.');
+      setNotice(errorMessage(error, '온보딩 정보를 저장하지 못했습니다.'));
     } finally {
       setSavingOnboarding(false);
     }
@@ -201,7 +202,7 @@ export default function App() {
         setNotice('현재 실행 환경은 백그라운드 기록을 지원하지 않아 앱이 열린 동안만 기록해요. 개발 빌드에서는 화면이 꺼져도 기록할 수 있어요.');
       }
     }).catch((error) => {
-      setNotice(error instanceof Error ? error.message : '러닝을 시작하지 못했습니다.');
+      setNotice(errorMessage(error, '러닝을 시작하지 못했습니다.'));
     });
   };
 
@@ -263,7 +264,7 @@ export default function App() {
         setLogNotice('이 기록의 공개 범위를 저장했어요.');
         await runRecorder.refreshHistory();
       })
-      .catch((error) => setLogNotice(error instanceof Error ? error.message : String(error)))
+      .catch((error) => setLogNotice(errorMessage(error)))
       .finally(() => setLogBusy(false));
   };
 
@@ -278,7 +279,7 @@ export default function App() {
         go('home');
         setNotice('러닝 기록과 원본 GPS를 삭제했어요.');
       })
-      .catch((error) => setLogNotice(error instanceof Error ? error.message : String(error)))
+      .catch((error) => setLogNotice(errorMessage(error)))
       .finally(() => setLogBusy(false));
   };
 
@@ -298,7 +299,7 @@ export default function App() {
         setReportNotice('신고를 접수했어요. 신고 시점 프로필이 증거로 함께 저장되며, 신고자 정보는 상대에게 공개되지 않아요.');
         await social.refresh();
       })
-      .catch((error) => setReportError(error instanceof Error ? error.message : String(error)))
+      .catch((error) => setReportError(errorMessage(error)))
       .finally(() => setReportBusy(false));
   };
 
@@ -312,7 +313,7 @@ export default function App() {
         await social.refresh();
         await chat.refreshThreads();
       })
-      .catch((error) => setReportError(error instanceof Error ? error.message : String(error)))
+      .catch((error) => setReportError(errorMessage(error)))
       .finally(() => setReportBusy(false));
   };
 

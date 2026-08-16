@@ -3,6 +3,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
+import { errorMessage } from './errors';
 import { hasSupabaseConfig, supabase } from './supabase';
 
 export type SocialProvider = 'apple' | 'kakao' | 'google';
@@ -68,7 +69,7 @@ async function exchangeCallback(url: string): Promise<AuthActionResult> {
   } catch (error) {
     return {
       status: 'error',
-      error: error instanceof Error ? error.message : '로그인 세션을 저장하지 못했습니다.',
+      error: errorMessage(error, '로그인 세션을 저장하지 못했습니다.'),
     };
   }
 }
@@ -109,7 +110,7 @@ export async function beginSocialLogin(provider: SocialProvider): Promise<AuthAc
   } catch (error) {
     return {
       status: 'error',
-      error: error instanceof Error ? error.message : '로그인 창을 열지 못했습니다.',
+      error: errorMessage(error, '로그인 창을 열지 못했습니다.'),
     };
   }
 }

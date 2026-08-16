@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 
 import { fetchRunRoute, type RunRoute } from '../features/running/run-route';
+import { errorMessage } from '../lib/errors';
 import { styles } from './styles';
 
 // expo-maps는 최상위에서 import하지 않는다. 네이티브 뷰가 없는 환경(Expo Go, 웹)
@@ -79,7 +80,7 @@ export function RunRouteMap({ sessionId }: { sessionId: string }) {
     void fetchRunRoute(sessionId)
       .then((result) => { if (mounted) setRoute(result); })
       .catch((reason) => {
-        if (mounted) setError(reason instanceof Error ? reason.message : String(reason));
+        if (mounted) setError(errorMessage(reason));
       });
     return () => { mounted = false; };
   }, [sessionId]);
@@ -90,7 +91,7 @@ export function RunRouteMap({ sessionId }: { sessionId: string }) {
     void loadMaps()
       .then((module) => { if (mounted) setMaps(module); })
       .catch((reason) => {
-        if (mounted) setError(reason instanceof Error ? reason.message : String(reason));
+        if (mounted) setError(errorMessage(reason));
       });
     return () => { mounted = false; };
   }, [availability.usable]);

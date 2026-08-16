@@ -9,6 +9,7 @@ import {
   type LogVisibility,
   type PrivacyStatus,
 } from '../features/account/account-api';
+import { errorMessage } from '../lib/errors';
 import { supabase } from '../lib/supabase';
 
 export function usePrivacy(userId?: string) {
@@ -28,7 +29,7 @@ export function usePrivacy(userId?: string) {
       setStatus(await fetchPrivacyStatus());
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +50,7 @@ export function usePrivacy(userId?: string) {
       setNotice(await action());
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorMessage(reason));
       throw reason;
     } finally {
       setIsBusy(false);
