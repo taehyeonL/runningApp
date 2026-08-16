@@ -14,7 +14,8 @@
           "location"
         ]
       },
-      "bundleIdentifier": "com.lth3723.runningmate"
+      "bundleIdentifier": "com.lth3723.runningmate",
+      "appleTeamId": "BA92679J95"
     },
     "android": {
       "adaptiveIcon": {

@@ -44,3 +44,7 @@ yarn-error.*
 
 # Supabase CLI local state
 supabase/.branches/
+
+# Apple 인증서 (키체인에 넣고 나면 저장소에 둘 이유가 없습니다)
+*.cer
+*.certSigningRequest
