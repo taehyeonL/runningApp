@@ -99,3 +99,23 @@ npx expo run:ios --configuration Release --device <udid>
 `app.json`, `package.json`의 일부 변경은 `expo prebuild`가 자동 생성한 것입니다
 (Android 권한 목록, `npm run android`의 `expo start` → `expo run:android`).
 의도한 변경과 섞이므로, 커밋 전에 이 파일들의 diff는 한 줄씩 확인하세요.
+
+## 2026-08-18 세션 진행상황
+
+### 완료된 기능
+- ✅ 상관없음 관계 의도 추가
+- ✅ repeat_encounter_threshold 5 → 3으로 변경
+- ✅ 경로 지도 렌더링 (location_points polyline)
+- ✅ 실기기 Release 빌드 배포
+
+### 테스트 데이터
+- **계정1** (lth3723@gmail.com): 2026-08-17 12:11 러닝 5.2km, 819포인트 → 지도 렌더링 확인 ✅
+- **계정2** (lthlthltlt@gmail.com): 2026-08-17 12:20 러닝 5km, 100포인트
+
+### DB 데이터 확인
+- running_sessions: 3개 (is_match_eligible=true)
+- location_points: 919개
+- encounter_candidates: 2개 (양방향, eligible=true, repeat=3)
+
+### 남은 확인사항
+⏳ 앱 발견 화면에서 매칭 카드 실제 표시 (encounter_candidates는 DB에 있음, 앱 새로고침 필요)

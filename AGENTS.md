@@ -149,3 +149,24 @@ npm run android                      # expo run:android (개발 빌드)
 - 대화나 로그에 시크릿이 한 번이라도 노출되면 해당 값은 폐기하고 교체합니다.
 - 인증서·프로파일도 저장소에 두지 않습니다(`*.cer`, `*.p8`, `*.p12`, `*.mobileprovision` 무시).
   키체인에 넣고 나면 파일은 남길 이유가 없습니다.
+
+# 2026-08-18 세션: 3개 기능 구현 및 배포 완료
+
+## 구현된 기능
+1. **상관없음(무관심) 관계 의도** — onboarding에서 4번째 옵션 추가
+2. **repeat_encounter_threshold 5→3** — 매칭 자격 조건 완화
+3. **경로 지도 렌더링** — 기록 상세에서 location_points로 polyline 표시
+
+## 테스트 현황
+- ✅ 실기기(iPhone 16 Pro) Release 빌드 배포
+- ✅ 지도 렌더링 확인 (2026-08-17 기록, 819개 포인트)
+- ✅ encounter_candidates 생성 (2개 양방향)
+- ✅ location_points 919개 (기존 + 테스트)
+
+## 매칭 테스트 데이터
+- **lth3723@gmail.com**: 2026-08-17 12:11 러닝 5.2km, 819포인트
+- **lthlthltlt@gmail.com**: 2026-08-17 12:20 러닝 5km, 100포인트 (시간 겹침)
+- encounter_candidates: 양방향 eligible=true, repeat=3 설정
+
+## 남은 확인사항
+⏳ 앱 발견 화면에서 매칭 카드 실제 표시 확인 필요 (encounter_candidates DB에는 데이터 있음)
