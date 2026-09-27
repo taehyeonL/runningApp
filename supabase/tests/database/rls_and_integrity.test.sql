@@ -27,8 +27,9 @@ select ok(
   'clients cannot read moderation_actions directly'
 );
 select ok(
-  has_column_privilege('authenticated', 'public.profiles', 'nickname', 'UPDATE'),
-  'clients can still edit safe profile fields'
+  not has_column_privilege('authenticated', 'public.profiles', 'nickname', 'UPDATE')
+  and has_column_privilege('authenticated', 'public.profiles', 'bio', 'UPDATE'),
+  'nickname changes use the cooldown RPC while other safe profile fields remain editable'
 );
 select ok(
   not has_column_privilege('authenticated', 'public.profiles', 'birth_year', 'UPDATE'),
@@ -102,9 +103,9 @@ values
 
 insert into public.profiles (id, nickname, birth_year, age_verified_at)
 values
-  ('00000000-0000-0000-0000-000000000001', '러너A', 1990, now()),
-  ('00000000-0000-0000-0000-000000000002', '러너B', 1991, now()),
-  ('00000000-0000-0000-0000-000000000003', '러너C', 1992, now());
+  ('00000000-0000-0000-0000-000000000001', '러너가', 1990, now()),
+  ('00000000-0000-0000-0000-000000000002', '러너나', 1991, now()),
+  ('00000000-0000-0000-0000-000000000003', '러너다', 1992, now());
 
 insert into public.consent_records (user_id, consent_type, policy_version, granted)
 select user_id, consent_type, 'rls-test-v1', true

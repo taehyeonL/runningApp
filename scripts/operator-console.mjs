@@ -22,6 +22,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve as resolvePath } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { renderEvidence } from './operator-evidence.mjs';
 
 const ACTIONS = new Set([
   'warning', 'remove_content', 'request_restriction',
@@ -106,20 +107,6 @@ function renderQueueRow(row) {
     `  subject ${row.subject_id}`,
     `  접수 ${formatDate(row.reported_at)} · 서로 다른 신고자 ${row.distinct_reporters_30d}명/30일${flags ? ` · ${flags}` : ''}`,
   ].join('\n');
-}
-
-function renderEvidence(evidence) {
-  if (!Array.isArray(evidence) || evidence.length === 0) return '  (없음)';
-  return evidence.map((item) => {
-    if (item.kind === 'message') {
-      return `  [메시지] ${formatDate(item.sent_at)}\n    ${item.body}`;
-    }
-    if (item.kind === 'profile') {
-      const tags = Array.isArray(item.running_style_tags) ? item.running_style_tags.join(', ') : '';
-      return `  [프로필] 닉네임 ${item.nickname}${tags ? ` · ${tags}` : ''}`;
-    }
-    return `  [${item.kind ?? '기타'}] ${JSON.stringify(item)}`;
-  }).join('\n');
 }
 
 async function commandQueue(args) {

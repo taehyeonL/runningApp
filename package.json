@@ -5,11 +5,13 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
     "expo": "~57.0.12",
+    "expo-crypto": "~57.0.3",
     "expo-linking": "~57.0.5",
     "expo-location": "~57.0.9",
     "expo-maps": "~57.0.1",
     "expo-notifications": "~57.0.10",
     "expo-secure-store": "~57.0.1",
+    "expo-speech": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.9",
     "expo-web-browser": "~57.0.2",
@@ -29,6 +31,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "check:oauth": "node scripts/check-oauth-providers.mjs",
+    "check:launch": "node scripts/check-launch.mjs",
     "typecheck": "tsc --noEmit"
   },
   "private": true

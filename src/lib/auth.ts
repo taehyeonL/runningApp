@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
 import { errorMessage } from './errors';
+import { ensureAuthCrypto } from './auth-crypto';
 import { hasSupabaseConfig, supabase } from './supabase';
 
 export type SocialProvider = 'apple' | 'kakao' | 'google';
@@ -92,6 +93,7 @@ export async function beginSocialLogin(provider: SocialProvider): Promise<AuthAc
 
   try {
     const redirectTo = getAuthRedirectUrl();
+    await ensureAuthCrypto();
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {

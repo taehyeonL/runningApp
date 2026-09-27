@@ -29,6 +29,9 @@ type ProfileRow = {
   pace_max_seconds: number | null;
   monthly_distance_km: number | string | null;
   completed_run_count: number | null;
+  availability_slots: unknown;
+  primary_achievement: string | null;
+  achievement_codes: unknown;
 };
 
 type RequestRow = {
@@ -43,6 +46,8 @@ type RequestRow = {
   responded_at: string | null;
   expires_at: string;
 };
+
+type SafetyCheckinRow = { id: string; request_id: string; status: 'prepared' | 'completed' };
 
 function strings(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -59,6 +64,9 @@ function profileFromRow(row: ProfileRow): SocialProfile {
     paceMaxSeconds: row.pace_max_seconds,
     monthlyDistanceKm: Number(row.monthly_distance_km ?? 0),
     completedRunCount: row.completed_run_count ?? 0,
+    availabilitySlots: strings(row.availability_slots),
+    primaryAchievement: row.primary_achievement ?? 'beginner',
+    achievementCodes: strings(row.achievement_codes),
   };
 }
 
@@ -69,7 +77,7 @@ function requireClient() {
 
 export async function fetchSocialSnapshot(userId: string): Promise<SocialSnapshot> {
   const client = requireClient();
-  const [candidateResult, requestResult] = await Promise.all([
+  const [candidateResult, requestResult, checkinResult] = await Promise.all([
     client
       .from('encounter_candidates')
       .select('id,candidate_profile_id,similarity_label,reasons,repeat_encounters_30d,request_eligible,safe_overlap_summary,generated_at,expires_at')
@@ -80,12 +88,15 @@ export async function fetchSocialSnapshot(userId: string): Promise<SocialSnapsho
       .select('id,requester_id,recipient_id,candidate_id,template_key,message,status,created_at,responded_at,expires_at,status_changed_at')
       .order('status_changed_at', { ascending: false })
       .limit(50),
+    client.from('my_run_safety_checkins').select('id,request_id,status').order('created_at', { ascending: false }),
   ]);
   if (candidateResult.error) throw candidateResult.error;
   if (requestResult.error) throw requestResult.error;
+  if (checkinResult.error) throw checkinResult.error;
 
   const candidateRows = (candidateResult.data ?? []) as CandidateRow[];
   const requestRows = (requestResult.data ?? []) as RequestRow[];
+  const checkins = new Map(((checkinResult.data ?? []) as SafetyCheckinRow[]).map((item) => [item.request_id, item]));
   const profileIds = new Set(candidateRows.map((row) => row.candidate_profile_id));
   requestRows.forEach((row) => profileIds.add(row.requester_id === userId ? row.recipient_id : row.requester_id));
 
@@ -93,10 +104,18 @@ export async function fetchSocialSnapshot(userId: string): Promise<SocialSnapsho
   if (profileIds.size > 0) {
     const profileResult = await client
       .from('social_profiles')
-      .select('id,nickname,age_band,relationship_intents,running_style_tags,pace_min_seconds,pace_max_seconds,monthly_distance_km,completed_run_count')
+      .select('id,nickname,age_band,relationship_intents,running_style_tags,pace_min_seconds,pace_max_seconds,monthly_distance_km,completed_run_count,availability_slots,primary_achievement,achievement_codes')
       .in('id', [...profileIds]);
     if (profileResult.error) throw profileResult.error;
     ((profileResult.data ?? []) as ProfileRow[]).forEach((row) => profiles.set(row.id, profileFromRow(row)));
+    const details = await client.from('social_runner_details').select('id,bio,conversation_preference,preferred_distance').in('id', [...profileIds]);
+    // Staged rollout: an older server can still provide its existing safe cards.
+    // Permission/network errors are never treated as successful detail reads.
+    if (details.error && !['PGRST205', '42P01'].includes(details.error.code)) throw details.error;
+    for (const row of details.data ?? []) {
+      const profile = profiles.get(row.id);
+      if (profile) Object.assign(profile, { bio: row.bio, conversationPreference: row.conversation_preference, preferredDistance: row.preferred_distance });
+    }
   }
 
   const candidates = candidateRows.flatMap((row) => {
@@ -128,9 +147,22 @@ export async function fetchSocialSnapshot(userId: string): Promise<SocialSnapsho
       respondedAt: row.responded_at,
       expiresAt: row.expires_at,
       counterpart: profiles.get(counterpartId) ?? null,
+      safetyCheckin: checkins.get(row.id) ?? null,
     };
   });
   return { candidates, requests };
+}
+
+export async function prepareRunSafetyCheckin(requestId: string) {
+  const { data, error } = await requireClient().rpc('prepare_run_safety_checkin', { p_request_id: requestId });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function completeRunSafetyCheckin(checkinId: string) {
+  const { data, error } = await requireClient().rpc('complete_run_safety_checkin', { p_checkin_id: checkinId });
+  if (error) throw error;
+  if (data !== true) throw new Error('이미 완료했거나 내 안전 체크인이 아닙니다.');
 }
 
 export async function sendConnectionRequest(candidate: DiscoveryCandidate, templateKey: RequestTemplateKey) {

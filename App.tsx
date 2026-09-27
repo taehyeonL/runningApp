@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Platform } from 'react-native';
 
 import { deleteRun, setRunVisibility } from './src/features/account/account-api';
-import { registerForMessagePush, unregisterMessagePush } from './src/features/chat/push';
+import { registerForMessagePush, unregisterThisDevicePush } from './src/features/chat/push';
 import type { RunListItem } from './src/features/running/run-types';
 import {
   blockUser,
@@ -17,6 +17,10 @@ import { useAuthSession } from './src/hooks/use-auth-session';
 import { useChat } from './src/hooks/use-chat';
 import { usePrivacy } from './src/hooks/use-privacy';
 import { useRunRecorder } from './src/hooks/use-run-recorder';
+import { useRunCoach } from './src/hooks/use-run-coach';
+import { useWatchRunImport } from './src/hooks/use-watch-run-import';
+import { useWatchRunSync } from './src/hooks/use-watch-run-sync';
+import type { RunPlan } from './src/features/running/run-plans';
 import { useSocial } from './src/hooks/use-social';
 import {
   beginSocialLogin,
@@ -29,27 +33,53 @@ import { hasCompletedOnboarding, saveOnboarding } from './src/lib/onboarding';
 import { hasSupabaseConfig } from './src/lib/supabase';
 import { screensWithBottomNavigation, type Screen } from './src/navigation/routes';
 import { AccountScreen } from './src/screens/account-screens';
+import { GardenScreen } from './src/screens/garden-screen';
+import { LiveGardenScreen } from './src/screens/live-garden-screen';
+import { NotificationSettings } from './src/screens/notification-settings';
 import { ChatListScreen, ChatThreadScreen } from './src/screens/chat-screens';
+import { FriendsScreen } from './src/screens/friends-screen';
 import { LoginScreen, OnboardingScreen, type OnboardingSubmission } from './src/screens/auth-screens';
-import { HomeScreen, RunCompleteScreen, RunScreen } from './src/screens/running-screens';
+import { HomeScreen, PlanRunScreen, RunCompleteScreen, RunScreen } from './src/screens/running-screens';
 import { DiscoverScreen, ProfileScreen, ReportScreen, RequestScreen } from './src/screens/social-screens';
 import { errorMessage } from './src/lib/errors';
 import { AppShell } from './src/ui/components';
 
+const isValidNickname = (nickname: string) => /^[가-힣]{2,8}$/.test(nickname);
+
 export default function App() {
   const { session, isLoading: isSessionLoading, error: sessionError } = useAuthSession();
   const runRecorder = useRunRecorder(session?.user.id);
+  const [runPlan, setRunPlan] = useState<RunPlan | null>(null);
   const social = useSocial(session?.user.id);
   const privacy = usePrivacy(session?.user.id);
+  const runCoach = useRunCoach(runRecorder.activeRun, runRecorder.metrics, runPlan, privacy.status?.usualPaceSeconds ?? null);
   const chat = useChat(session?.user.id);
   const callbackUrl = Linking.useLinkingURL();
   const hadAuthenticatedSession = useRef(false);
   const pushToken = useRef<string | null>(null);
+  const pushPending = useRef<Promise<void> | null>(null);
+  const [pushStatus, setPushStatus] = useState('');
+  const [pushBusy, setPushBusy] = useState(false);
+  const updatePush = (ask = true) => {
+    if (pushPending.current || !session) return;
+    setPushBusy(true);
+    const pending = registerForMessagePush(ask).then(result => {
+      if (result.status === 'registered') {
+        pushToken.current = result.token;
+        setPushStatus('이 기기의 알림 토큰을 등록했어요. 실제 수신은 서버 전송 설정과 기기 상태에 따라 달라요.');
+      } else setPushStatus(result.status === 'denied' ? '알림 권한이 꺼져 있어요. 기기 설정에서 허용 후 다시 확인해 주세요.' : result.reason);
+    }).catch(reason => setPushStatus(errorMessage(reason, '알림 등록에 실패했어요. 다시 시도해 주세요.')))
+      .finally(() => { pushPending.current = null; setPushBusy(false); });
+    pushPending.current = pending;
+  };
   const [screen, setScreen] = useState<Screen>('login');
   const [notice, setNotice] = useState('');
   const [authenticatingProvider, setAuthenticatingProvider] = useState<SocialProvider | null>(null);
   const [savingOnboarding, setSavingOnboarding] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunListItem | null>(null);
+  const [gardenOwner, setGardenOwner] = useState<string | null>(null);
+  const [gardenReturn, setGardenReturn] = useState<Screen>('home');
+  const [chatReturn, setChatReturn] = useState<Screen>('chat');
   const [selectedCandidate, setSelectedCandidate] = useState<DiscoveryCandidate | null>(null);
   const [logBusy, setLogBusy] = useState(false);
   const [logNotice, setLogNotice] = useState<string | null>(null);
@@ -129,18 +159,11 @@ export default function App() {
     };
   }, [screen, session]);
 
-  // 푸시 등록 실패는 대화 자체를 막지 않는다. 권한을 거부했거나 Expo Go처럼
-  // 원격 푸시를 지원하지 않는 환경이면 알림만 조용히 비활성화된다.
+  // 가입 직후 권한 팝업을 띄우지 않는다. 사용자가 설정에서 직접 활성화한다.
   useEffect(() => {
-    if (!session) return;
-    let active = true;
-    void registerForMessagePush().then((result) => {
-      if (active && result.status === 'registered') pushToken.current = result.token;
-    }).catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [session]);
+    setPushStatus('');
+    if (session) updatePush(false);
+  }, [session?.user.id]);
 
   const socialLogin = async (provider: SocialProvider) => {
     setAuthenticatingProvider(provider);
@@ -161,9 +184,13 @@ export default function App() {
       setNotice('진행 중인 러닝을 종료하거나 삭제한 뒤 로그아웃해 주세요.');
       return;
     }
-    if (pushToken.current) {
-      await unregisterMessagePush(pushToken.current).catch(() => undefined);
+    await pushPending.current;
+    try {
+      await unregisterThisDevicePush(pushToken.current);
       pushToken.current = null;
+    } catch (reason) {
+      setNotice(errorMessage(reason, '이 기기의 알림 연결을 해제하지 못했어요. 네트워크 연결 후 로그아웃을 다시 시도해 주세요.'));
+      return;
     }
     const { error } = await signOut();
     if (error) {
@@ -175,6 +202,10 @@ export default function App() {
   };
 
   const finishOnboarding = async (input: OnboardingSubmission) => {
+    if (!isValidNickname(input.nickname.trim())) {
+      setNotice('닉네임은 한글 2~8자로 입력해 주세요.');
+      return;
+    }
     if (!input.adult || !input.terms || !input.privacy || !input.location) {
       setNotice('만 19세 이상 확인과 필수 약관·개인정보·위치정보 동의가 필요해요.');
       return;
@@ -195,18 +226,20 @@ export default function App() {
     }
   };
 
-  const startRun = (preferBackground: boolean) => {
+  const startRun = (preferBackground: boolean, plan: RunPlan | null = null) => {
+    setRunPlan(plan);
     void runRecorder.start(preferBackground).then((state) => {
       go('run');
       if (preferBackground && state.trackingMode === 'foreground') {
         setNotice('현재 실행 환경은 백그라운드 기록을 지원하지 않아 앱이 열린 동안만 기록해요. 개발 빌드에서는 화면이 꺼져도 기록할 수 있어요.');
       }
     }).catch((error) => {
+      setRunPlan(null);
       setNotice(errorMessage(error, '러닝을 시작하지 못했습니다.'));
     });
   };
 
-  const promptRunStart = () => {
+  const promptRunStart = (plan: RunPlan | null = null) => {
     if (runRecorder.activeRun) {
       go('run');
       return;
@@ -217,7 +250,7 @@ export default function App() {
       return;
     }
     if (Platform.OS === 'web') {
-      startRun(false);
+      startRun(false, plan);
       return;
     }
     Alert.alert(
@@ -225,8 +258,8 @@ export default function App() {
       '거리·시간·페이스와 안전한 동선 유사도 검증에 사용합니다. 원본 좌표와 정확한 시각은 다른 사용자에게 공개하지 않아요.',
       [
         { text: '취소', style: 'cancel' },
-        { text: '앱을 보는 동안', onPress: () => startRun(false) },
-        { text: '화면이 꺼져도 기록', onPress: () => startRun(true) },
+        { text: '앱을 보는 동안', onPress: () => startRun(false, plan) },
+        { text: '화면이 꺼져도 기록', onPress: () => startRun(true, plan) },
       ],
     );
   };
@@ -237,6 +270,29 @@ export default function App() {
       go('complete');
     }).catch(() => undefined);
   };
+
+  useWatchRunSync(runRecorder, () => startRun(true), finishActiveRun);
+
+  // 워치가 단독으로 기록한 러닝을 서버로 올린다. 좌표는 폰 러닝과 같은
+  // location_points로 들어가므로 새 노출 경로가 생기지 않는다.
+  const watchImport = useWatchRunImport(session?.user.id, () => {
+    void runRecorder.refreshHistory();
+  });
+
+  useEffect(() => {
+    if (watchImport.lastImported.length === 0) return;
+    const kilometers = watchImport.lastImported
+      .reduce((total, run) => total + run.distanceMeters, 0) / 1000;
+    const recovered = watchImport.lastImported.some((run) => run.recovered);
+    setNotice(recovered
+      ? `애플워치 러닝 ${watchImport.lastImported.length}건을 가져왔어요. 워치 앱이 중간에 종료돼 마지막 좌표까지만 남은 기록이 있어요.`
+      : `애플워치 러닝 ${watchImport.lastImported.length}건(${kilometers.toFixed(2)}km)을 가져왔어요.`);
+    watchImport.dismiss();
+  }, [watchImport.dismiss, watchImport.lastImported]);
+
+  useEffect(() => {
+    if (watchImport.error) setNotice(watchImport.error);
+  }, [watchImport.error]);
 
   const leaveRunScreen = () => {
     if (!runRecorder.activeRun) {
@@ -296,7 +352,7 @@ export default function App() {
     setReportError(null);
     void reportProfile(reportTarget.id, reason, details)
       .then(async () => {
-        setReportNotice('신고를 접수했어요. 신고 시점 프로필이 증거로 함께 저장되며, 신고자 정보는 상대에게 공개되지 않아요.');
+        setReportNotice('신고를 접수했어요. 조회 가능한 프로필 내용은 서버가 보존하며, 이미 숨겨진 내용은 추가 수집하지 않아요. 신고자 정보는 상대에게 공개되지 않아요.');
         await social.refresh();
       })
       .catch((error) => setReportError(errorMessage(error)))
@@ -318,13 +374,20 @@ export default function App() {
   };
 
   const openChatThread = (partnerId: string) => {
+    setChatReturn(screen === 'friends' ? 'friends' : 'chat');
     void chat.openThread(partnerId);
     go('chatThread');
   };
 
   const leaveChatThread = () => {
     chat.closeThread();
-    go('chat');
+    go(chatReturn);
+  };
+
+  const openGarden = (owner: string | null) => {
+    setGardenReturn(screen);
+    setGardenOwner(owner);
+    go('garden');
   };
 
   const openRequest = (candidate: DiscoveryCandidate) => {
@@ -341,28 +404,37 @@ export default function App() {
   let content: ReactNode;
   switch (screen) {
     case 'login':
-      content = <LoginScreen authenticatingProvider={authenticatingProvider} isSessionLoading={isSessionLoading} notice={notice} onLogin={(provider) => void socialLogin(provider)} onPreviewOnboarding={() => go('onboarding')} />;
+      content = <LoginScreen authenticatingProvider={authenticatingProvider} isSessionLoading={isSessionLoading} notice={notice} onLogin={(provider) => void socialLogin(provider)} onPreviewOnboarding={() => go('onboarding')} onPreviewGarden={() => go('garden')} />;
       break;
     case 'onboarding':
       content = <OnboardingScreen saving={savingOnboarding} notice={notice} onBack={() => go('login')} onSubmit={(input) => void finishOnboarding(input)} />;
       break;
     case 'home':
-      content = <HomeScreen recorder={runRecorder} notice={notice} onStart={promptRunStart} onDiscover={() => go('discover')} onOpenRun={openRun} />;
+      content = <HomeScreen recorder={runRecorder} notice={notice} trainingGoal={privacy.status?.trainingGoal} onStart={() => promptRunStart()} onStartPlan={() => go('plan')} onDiscover={() => go('discover')} onOpenRun={openRun} onOpenGarden={() => openGarden(null)} />;
+      break;
+    case 'garden':
+      content = session ? <LiveGardenScreen key={`${session.user.id}:${gardenOwner ?? session.user.id}`} userId={session.user.id} ownerId={gardenOwner ?? session.user.id} onBack={() => { setGardenOwner(null); go(gardenReturn); }} onVisit={setGardenOwner} /> : <GardenScreen onBack={() => go('login')} onStartRun={() => go('login')} />;
       break;
     case 'run':
-      content = <RunScreen recorder={runRecorder} notice={notice} onBack={leaveRunScreen} onHome={() => go('home')} onFinish={finishActiveRun} />;
+      content = <RunScreen recorder={runRecorder} coach={runCoach} plan={runPlan} notice={notice} onBack={leaveRunScreen} onHome={() => go('home')} onFinish={finishActiveRun} />;
+      break;
+    case 'plan':
+      content = <PlanRunScreen trainingGoal={privacy.status?.trainingGoal} usualPaceSeconds={privacy.status?.usualPaceSeconds ?? null} onBack={() => go('home')} onStart={(plan) => promptRunStart(plan)} />;
       break;
     case 'complete':
-      content = <RunCompleteScreen recorder={runRecorder} selectedRun={selectedRun} logBusy={logBusy} logNotice={logNotice} onHome={() => go('home')} onDiscover={() => go('discover')} onChangeVisibility={changeRunVisibility} onDeleteRun={removeRun} />;
+      content = <RunCompleteScreen recorder={runRecorder} selectedRun={selectedRun} logBusy={logBusy} logNotice={logNotice} onHome={() => go('home')} onDiscover={() => go('discover')} onGarden={() => openGarden(null)} onChangeVisibility={changeRunVisibility} onDeleteRun={removeRun} />;
       break;
     case 'discover':
-      content = <DiscoverScreen userId={session?.user.id} social={social} chatUnreadCount={chat.totalUnread} onRequest={openRequest} onReport={() => go('report')} onOpenChat={() => go('chat')} />;
+      content = <DiscoverScreen userId={session?.user.id} social={social} chatUnreadCount={chat.totalUnread} viewerAvailabilitySlots={privacy.status?.availabilitySlots ?? []} adultVerified={privacy.status?.ageVerificationComplete === true} onOpenProfile={() => go('profile')} onRequest={openRequest} onVisitGarden={openGarden} onReport={() => go('report')} onOpenChat={() => go('chat')} onStartPlan={() => go(runRecorder.activeRun ? 'run' : 'plan')} />;
+      break;
+    case 'friends':
+      content = <FriendsScreen key={session?.user.id ?? 'guest'} userId={session?.user.id} adultVerified={privacy.status?.ageVerificationComplete === true} onDiscover={() => go('discover')} onAccount={() => go(session ? 'account' : 'login')} onChat={openChatThread} onGarden={openGarden} />;
       break;
     case 'request':
-      content = <RequestScreen candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} onReport={openReport} />;
+      content = <RequestScreen key={selectedCandidate?.id ?? 'no-candidate'} candidate={selectedCandidate} sending={social.actionRequestId === selectedCandidate?.id} error={social.error} onBack={() => go('discover')} onSend={sendRequest} onReport={openReport} />;
       break;
     case 'profile':
-      content = <ProfileScreen recentRuns={runRecorder.recentRuns} privacy={privacy} moderationNotices={moderationNotices} signedIn={Boolean(session)} onOpenRun={openRun} onOpenAccount={() => go('account')} onLogout={() => void logout()} />;
+      content = <><ProfileScreen recentRuns={runRecorder.recentRuns} privacy={privacy} moderationNotices={moderationNotices} signedIn={Boolean(session)} onOpenRun={openRun} onOpenAccount={() => go('account')} onLogout={() => void logout()} />{session ? <NotificationSettings status={pushStatus} busy={pushBusy} onEnable={() => updatePush()} /> : null}</>;
       break;
     case 'account':
       content = <AccountScreen privacy={privacy} onBack={() => go('profile')} />;
@@ -371,7 +443,15 @@ export default function App() {
       content = <ChatListScreen chat={chat} onBack={() => go('discover')} onOpenThread={openChatThread} />;
       break;
     case 'chatThread':
-      content = <ChatThreadScreen chat={chat} userId={session?.user.id} onBack={leaveChatThread} />;
+      content = <ChatThreadScreen key={`${session?.user.id ?? 'guest'}:${chat.openPartnerId ?? 'none'}`} chat={chat} userId={session?.user.id} onBack={leaveChatThread} onBlock={() => {
+        const partnerId = chat.openPartnerId;
+        if (!session || !partnerId) return;
+        Alert.alert('이 러너를 차단할까요?', '서로의 발견·요청·대화와 메시지 알림이 차단돼요.', [{ text: '취소', style: 'cancel' }, { text: '차단', style: 'destructive', onPress: () => {
+          void blockUser(session.user.id, partnerId).then(async () => {
+            chat.closeThread(); go('chat'); await Promise.all([social.refresh(), chat.refreshThreads()]);
+          }).catch(reason => Alert.alert('차단하지 못했어요', errorMessage(reason)));
+        } }]);
+      }} />;
       break;
     case 'report':
       content = <ReportScreen target={reportTarget} busy={reportBusy} notice={reportNotice} error={reportError} onBack={() => go('discover')} onSubmit={submitReport} onBlock={blockFromReport} />;

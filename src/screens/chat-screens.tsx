@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -14,6 +14,8 @@ import { reportReasons, type ChatMessage, type ReportReason } from '../features/
 import type { ChatController } from '../hooks/use-chat';
 import { Back, Card, ChoiceGroup, Kicker, Notice, SafetyGuide, Section } from '../ui/components';
 import { styles } from '../ui/styles';
+import { conversationStarters } from '../features/chat/conversation-starters';
+import { RunningAppointmentPanel } from './launch-experience';
 
 function messageTime(value: string) {
   return new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -38,7 +40,7 @@ export function ChatListScreen({ chat, onBack, onOpenThread }: {
       <Back onPress={onBack} />
       <Kicker>대화</Kicker>
       <Text style={styles.pageTitle}>수락한 러너와의 대화</Text>
-      <Text style={styles.pageSub}>요청을 서로 수락한 상대와만 대화할 수 있어요. 차단하거나 신고가 접수되면 대화는 즉시 닫혀요.</Text>
+      <Text style={styles.pageSub}>요청을 서로 수락한 상대와만 대화할 수 있어요. 차단하면 대화가 닫히며, 신고는 운영 검토와 안전 조치로 이어져요.</Text>
       {chat.error ? <Notice text={chat.error} /> : null}
 
       {chat.threads.length === 0 ? (
@@ -77,22 +79,33 @@ export function ChatListScreen({ chat, onBack, onOpenThread }: {
   );
 }
 
-export function ChatThreadScreen({ chat, userId, onBack }: {
+export function ChatThreadScreen({ chat, userId, onBack, onBlock }: {
   chat: ChatController;
   userId?: string;
   onBack: () => void;
+  onBlock?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
   const [reportReason, setReportReason] = useState<ReportReason>('hate');
   const [reportDetails, setReportDetails] = useState('');
+  const sendingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const partner = chat.openThreadSummary;
+  const canCompose = Boolean(userId && partner && partner.partnerId === chat.openPartnerId && !chat.isLoading);
+  const busy = chat.isSending || submitting;
 
   const submit = () => {
+    if (!canCompose || busy || sendingRef.current || !draft.trim()) return;
+    sendingRef.current = true;
+    setSubmitting(true);
     const body = draft;
     setDraft('');
-    void chat.send(body).catch(() => setDraft(body));
+    void chat.send(body).catch(() => setDraft((current) => current || body)).finally(() => {
+      sendingRef.current = false;
+      setSubmitting(false);
+    });
   };
 
   // 신고는 받은 메시지에만 열린다. 내가 쓴 말을 신고해 상대 기록을 더럽히는
@@ -134,23 +147,29 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
       <Back onPress={onBack} />
       <Kicker>대화</Kicker>
       <Text style={styles.pageTitle}>{partner?.partnerNickname ?? '대화'}</Text>
+      {partner && onBlock ? <Pressable accessibilityRole="button" style={styles.quietButton} onPress={onBlock}><Text style={styles.reportLinkText}>이 러너 차단하기</Text></Pressable> : null}
       <Text style={styles.pageSub}>정확한 위치나 집·직장을 묻는 메시지는 받지 않아도 돼요. 불편하면 메시지를 눌러 바로 신고할 수 있어요.</Text>
 
       {/* 약속을 잡는 자리가 바로 이 화면이므로 안전 가이드도 여기 둔다.
           아직 주고받은 메시지가 없으면 펼친 채로 보여준다. */}
       <SafetyGuide defaultExpanded={chat.messages.length === 0} />
+      {canCompose && partner && userId ? <RunningAppointmentPanel key={partner.partnerId} partnerId={partner.partnerId} userId={userId} /> : null}
 
       {chat.notice ? <Notice text={chat.notice} /> : null}
       {chat.error ? <Notice text={chat.error} /> : null}
 
-      {chat.messages.length === 0 ? (
-        <Card compact>
-          <View>
-            <Text style={styles.listTitle}>{chat.isLoading ? '대화를 불러오는 중…' : '첫 메시지를 보내보세요'}</Text>
-            <Text style={styles.caption}>만나기 전에 러닝 페이스와 코스만 가볍게 맞춰봐도 좋아요.</Text>
-          </View>
+      {chat.messages.length === 0 && canCompose && !chat.error ? (
+        <Card tone="mint">
+          <Kicker>서로의 러닝을 알아가는 첫인사</Kicker>
+          <Text style={styles.runQuestion}>같이 뛰기 전, 가볍게 인사해요</Text>
+          <Text style={styles.cardText}>문구를 고르면 입력창에 담겨요. 내 말투로 고친 뒤 직접 전송해 주세요.</Text>
+          {conversationStarters.map((starter) => <Pressable key={starter.id} accessibilityRole="button" accessibilityLabel={`${starter.label}, 입력창에 담기`} disabled={busy || Boolean(draft.trim())} onPress={() => setDraft(starter.body)} style={[styles.starterOption, (busy || Boolean(draft.trim())) && styles.buttonDisabled]}><Text style={styles.secondaryText}>{starter.label} ↗</Text></Pressable>)}
+          {draft.trim() ? <Text style={styles.caption}>작성 중인 첫인사를 아래 입력창에서 확인해 주세요.</Text> : null}
+          <Text style={styles.caption}>집·직장·정확한 러닝 경로 대신, 편한 페이스와 러닝 스타일부터 알아가요.</Text>
         </Card>
       ) : null}
+      {chat.messages.length === 0 && chat.isLoading ? <Notice text="대화를 불러오는 중…" /> : null}
+      {!chat.isLoading && !canCompose ? <Notice text="지금 대화할 수 있는 상대인지 확인하지 못했어요. 목록으로 돌아가 다시 확인해 주세요." /> : null}
       {chat.isLoadingOlder ? (
         <View style={styles.olderNotice}><Text style={styles.caption}>이전 대화를 불러오는 중…</Text></View>
       ) : null}
@@ -242,6 +261,7 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
           <TextInput
             style={styles.composerInput}
             value={draft}
+            editable={canCompose && !busy}
             onChangeText={setDraft}
             placeholder="메시지를 입력하세요"
             placeholderTextColor="#93A39E"
@@ -249,11 +269,13 @@ export function ChatThreadScreen({ chat, userId, onBack }: {
             maxLength={2000}
           />
           <Pressable
-            disabled={chat.isSending || draft.trim().length === 0}
-            style={[styles.sendButton, (chat.isSending || draft.trim().length === 0) && styles.buttonDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel="메시지 전송"
+            disabled={!canCompose || busy || draft.trim().length === 0}
+            style={[styles.sendButton, (!canCompose || busy || draft.trim().length === 0) && styles.buttonDisabled]}
             onPress={submit}
           >
-            <Text style={styles.primaryText}>{chat.isSending ? '…' : '전송'}</Text>
+            <Text style={styles.primaryText}>{busy ? '…' : '전송'}</Text>
           </Pressable>
         </View>
       )}

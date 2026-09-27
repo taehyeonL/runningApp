@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDisplayName</key><string>같이뛰어</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+
+  <!-- 단일 타깃 watchOS 앱은 WKApplication을 쓴다. 구형 WKWatchKitApp +
+       WatchKit 확장 구조는 Apple이 2023년부터 신규 제출을 받지 않는다. -->
+  <key>WKApplication</key><true/>
+  <key>WKCompanionAppBundleIdentifier</key><string>com.lth3723.runningmate</string>
+
+  <!-- location: 손목을 내려 화면이 꺼져도 좌표를 계속 받는다.
+       workout-processing: watchOS는 활성 운동 세션이 없으면 백그라운드에서
+       위치 업데이트를 끊는다. 심박·칼로리를 쓰지 않아도 세션이 필요하다. -->
+  <key>WKBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>workout-processing</string>
+  </array>
+
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>워치만으로 러닝을 기록할 때 거리와 경로를 남기는 데 사용해요. 원본 좌표는 본인만 볼 수 있고 다른 사용자에게 공개하지 않아요.</string>
+  <key>NSMotionUsageDescription</key>
+  <string>러닝 중 이동을 감지해 거리와 페이스를 정확하게 기록하는 데 사용해요.</string>
+  <!-- 운동 세션을 여는 최소 권한만 받는다. 건강 데이터는 읽지 않는다. -->
+  <key>NSHealthShareUsageDescription</key>
+  <string>러닝을 기록하는 동안 워치가 화면이 꺼져도 동작하도록 운동 세션을 사용해요. 건강 데이터를 읽지는 않아요.</string>
+  <key>NSHealthUpdateUsageDescription</key>
+  <string>러닝을 기록하는 동안 워치가 화면이 꺼져도 동작하도록 운동 세션을 사용해요.</string>
+</dict></plist>

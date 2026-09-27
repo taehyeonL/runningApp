@@ -4,6 +4,7 @@ import {
   cancelAccountDeletion,
   fetchPrivacyStatus,
   requestAccountDeletion,
+  setNickname,
   setProfilePrivacy,
   withdrawLocationConsent,
   type LogVisibility,
@@ -68,6 +69,12 @@ export function usePrivacy(userId?: string) {
       : '공개 설정을 저장했고, 이미 노출된 발견 카드도 회수했어요.';
   }), [run]);
 
+  const changeNickname = useCallback((nickname: string) => run(async () => {
+    const availableAt = await setNickname(nickname);
+    const date = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long' }).format(new Date(availableAt));
+    return `닉네임을 변경했어요. 다음 변경은 ${date}부터 가능해요.`;
+  }), [run]);
+
   const withdrawLocation = useCallback(() => run(async () => {
     const affected = await withdrawLocationConsent();
     return `위치 동의를 철회했어요. 러닝 ${affected}건의 원본 GPS가 파기 대상이 되고 발견은 중단됩니다.`;
@@ -92,6 +99,7 @@ export function usePrivacy(userId?: string) {
     notice,
     refresh,
     savePrivacy,
+    changeNickname,
     withdrawLocation,
     requestDeletion,
     cancelDeletion,

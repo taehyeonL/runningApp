@@ -1,13 +1,16 @@
-import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 
 import type { PrivacyController } from '../hooks/use-privacy';
 import { Back, Card, Kicker, Notice, PrimaryButton } from '../ui/components';
 import { styles } from '../ui/styles';
+import { LegalLinks, SupportContact } from './legal-center';
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'long' }).format(new Date(value));
 }
+
+const isValidNickname = (nickname: string) => /^[가-힣]{2,8}$/.test(nickname);
 
 // 위치 동의 철회와 계정 삭제는 요금제와 무관한 기본 권리다. 되돌릴 수 없는
 // 결과를 먼저 문장으로 알려주고, 확인을 거친 뒤에만 실행한다.
@@ -16,8 +19,14 @@ export function AccountScreen({ privacy, onBack }: {
   onBack: () => void;
 }) {
   const [reason, setReason] = useState<string | null>(null);
+  const [nickname, setNickname] = useState('');
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
   const status = privacy.status;
   const deletionPending = Boolean(status?.deletionPurgeAfter);
+
+  useEffect(() => {
+    if (status?.nickname) setNickname(status.nickname);
+  }, [status?.nickname]);
 
   const confirmWithdrawLocation = () => Alert.alert(
     '위치 동의를 철회할까요?',
@@ -45,6 +54,15 @@ export function AccountScreen({ privacy, onBack }: {
     ],
   );
 
+  const changeNickname = () => {
+    if (!isValidNickname(nickname.trim())) {
+      setNicknameError('닉네임은 한글 2~8자로 입력해 주세요.');
+      return;
+    }
+    setNicknameError(null);
+    void privacy.changeNickname(nickname).catch(() => undefined);
+  };
+
   return (
     <>
       <Back onPress={onBack} />
@@ -55,6 +73,8 @@ export function AccountScreen({ privacy, onBack }: {
       {privacy.isLoading ? <Notice text="설정을 불러오고 있어요…" /> : null}
       {privacy.notice ? <Notice text={privacy.notice} /> : null}
       {privacy.error ? <Notice text={privacy.error} /> : null}
+      <LegalLinks />
+      <SupportContact />
 
       {deletionPending && status ? (
         <Card tone="yellow">
@@ -70,6 +90,16 @@ export function AccountScreen({ privacy, onBack }: {
           />
         </Card>
       ) : null}
+
+      <Text style={styles.sectionTitle}>닉네임</Text>
+      <Card>
+        <Text style={styles.listTitle}>프로필에 표시되는 이름</Text>
+        <Text style={styles.cardText}>닉네임은 한글 2~8자로 설정하며, 변경 후 6개월 동안 다시 바꿀 수 없어요.</Text>
+        <TextInput value={nickname} onChangeText={(value) => { setNickname(value); setNicknameError(null); }} maxLength={8} autoCapitalize="none" placeholder="한글 2~8자" style={styles.detailsInput} />
+        {nicknameError ? <Notice text={nicknameError} /> : null}
+        {status?.nicknameChangeAvailableAt ? <Text style={styles.caption}>다음 변경 가능: {formatDate(status.nicknameChangeAvailableAt)}</Text> : <Text style={styles.caption}>지금 한 번 변경할 수 있어요.</Text>}
+        <PrimaryButton label={privacy.isBusy ? '저장 중…' : '닉네임 변경'} disabled={privacy.isBusy || nickname.trim() === status?.nickname} onPress={changeNickname} />
+      </Card>
 
       <Text style={styles.sectionTitle}>개인위치정보</Text>
       <Card>

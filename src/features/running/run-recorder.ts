@@ -6,15 +6,17 @@ import { errorMessage } from '../../lib/errors';
 import { supabase } from '../../lib/supabase';
 import { readActiveRun, replaceActiveRun, updateActiveRun } from './run-storage';
 import type {
+  AcceptedRunPoint,
   ActiveRunState,
   RunDiagnostics,
+  RunPointAccumulator,
   RunSummary,
   RunTrackingMode,
   StoredRunPoint,
 } from './run-types';
 
 export const RUN_LOCATION_TASK = 'running-mate-location-v1';
-const MAX_METRIC_ACCURACY_METERS = 30;
+export const MAX_METRIC_ACCURACY_METERS = 30;
 const MAX_RUNNING_SPEED_MPS = 12;
 const MAX_SEGMENT_SECONDS = 120;
 const UPLOAD_BATCH_SIZE = 100;
@@ -31,7 +33,7 @@ function runDiagnostics(state: ActiveRunState): RunDiagnostics {
   };
 }
 
-function haversineMeters(a: StoredRunPoint, b: StoredRunPoint) {
+export function haversineMeters(a: AcceptedRunPoint, b: AcceptedRunPoint) {
   const radius = 6_371_000;
   const radians = (degrees: number) => degrees * Math.PI / 180;
   const latitudeDelta = radians(b.latitude - a.latitude);
@@ -74,7 +76,25 @@ function toStoredPoint(location: Location.LocationObject): StoredRunPoint | null
   };
 }
 
-function addPoint(state: ActiveRunState, point: StoredRunPoint) {
+export function createRunPointAccumulator(): RunPointAccumulator {
+  return {
+    distanceMeters: 0,
+    movingMs: 0,
+    totalPoints: 0,
+    acceptedPoints: 0,
+    rejectedPoints: 0,
+    accuracyTotalMeters: 0,
+    accuracySamples: 0,
+    lastAcceptedPoint: null,
+  };
+}
+
+/**
+ * 좌표 하나를 누적한다. 폰 실시간 기록과 워치 이관이 **같은 판정**을 쓰도록
+ * 여기 한 곳에만 둔다. 정확도·구간 길이·속도 상한을 통과하지 못한 점은
+ * 거리에 더하지 않고 rejected로만 센다.
+ */
+export function accumulateRunPoint(state: RunPointAccumulator, point: StoredRunPoint) {
   state.totalPoints += 1;
   if (point.accuracyMeters !== null) {
     state.accuracyTotalMeters += point.accuracyMeters;
@@ -96,7 +116,7 @@ function addPoint(state: ActiveRunState, point: StoredRunPoint) {
   }
 
   const elapsedSeconds = (point.recordedAt - previous.recordedAt) / 1000;
-  const distance = haversineMeters(previous as StoredRunPoint, point);
+  const distance = haversineMeters(previous, point);
   const impliedSpeed = elapsedSeconds > 0 ? distance / elapsedSeconds : Number.POSITIVE_INFINITY;
   if (
     elapsedSeconds <= 0
@@ -115,7 +135,7 @@ function addPoint(state: ActiveRunState, point: StoredRunPoint) {
   state.lastAcceptedPoint = point;
 }
 
-async function ensureFreshSession() {
+export async function ensureFreshSession() {
   if (!supabase) throw new Error('Supabase 환경변수가 설정되지 않았습니다.');
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
@@ -129,6 +149,37 @@ async function ensureFreshSession() {
   }
 }
 
+export const RUN_UPLOAD_BATCH_SIZE = UPLOAD_BATCH_SIZE;
+
+/**
+ * 원본 좌표를 서버에 적재한다. 폰 실시간 기록과 워치 이관이 같은 컬럼·같은
+ * 충돌 규칙을 쓰도록 한 곳에 둔다. `session_id,recorded_at` 중복은 무시하므로
+ * 같은 배치를 다시 보내도 안전하다.
+ */
+export async function insertLocationPoints(
+  sessionId: string,
+  userId: string,
+  points: StoredRunPoint[],
+) {
+  if (points.length === 0) return;
+  if (!supabase) throw new Error('Supabase 환경변수가 설정되지 않았습니다.');
+  const { error } = await supabase.from('location_points').upsert(
+    points.map((point) => ({
+      session_id: sessionId,
+      user_id: userId,
+      recorded_at: new Date(point.recordedAt).toISOString(),
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracy_meters: point.accuracyMeters,
+      altitude_meters: point.altitudeMeters,
+      speed_mps: point.speedMps,
+      heading_degrees: point.headingDegrees,
+    })),
+    { onConflict: 'session_id,recorded_at', ignoreDuplicates: true },
+  );
+  if (error) throw error;
+}
+
 async function uploadPendingUnlocked(state: ActiveRunState) {
   if (state.pendingPoints.length === 0) {
     state.lastSyncError = null;
@@ -138,21 +189,7 @@ async function uploadPendingUnlocked(state: ActiveRunState) {
   try {
     await ensureFreshSession();
     const batch = state.pendingPoints.slice(0, UPLOAD_BATCH_SIZE);
-    const { error } = await supabase!.from('location_points').upsert(
-      batch.map((point) => ({
-        session_id: state.sessionId,
-        user_id: state.userId,
-        recorded_at: new Date(point.recordedAt).toISOString(),
-        latitude: point.latitude,
-        longitude: point.longitude,
-        accuracy_meters: point.accuracyMeters,
-        altitude_meters: point.altitudeMeters,
-        speed_mps: point.speedMps,
-        heading_degrees: point.headingDegrees,
-      })),
-      { onConflict: 'session_id,recorded_at', ignoreDuplicates: true },
-    );
-    if (error) throw error;
+    await insertLocationPoints(state.sessionId, state.userId, batch);
     state.pendingPoints.splice(0, batch.length);
     state.lastSyncError = null;
   } catch (error) {
@@ -177,7 +214,7 @@ export async function ingestLocations(locations: Location.LocationObject[]) {
       if (point.recordedAt <= (state.latestRecordedAt ?? 0)) continue;
       state.latestRecordedAt = point.recordedAt;
       state.pendingPoints.push(point);
-      addPoint(state, point);
+      accumulateRunPoint(state, point);
     }
     const diagnostics = runDiagnostics(state);
     diagnostics.maxPendingPoints = Math.max(diagnostics.maxPendingPoints, state.pendingPoints.length);
@@ -362,7 +399,7 @@ export function elapsedRunSeconds(state: ActiveRunState, now = Date.now()) {
   return Math.max(0, Math.floor((end - state.startedAt - state.totalPausedMs) / 1000));
 }
 
-export function averagePaceSeconds(state: ActiveRunState) {
+export function averagePaceSeconds(state: Pick<RunPointAccumulator, 'distanceMeters' | 'movingMs'>) {
   if (state.distanceMeters < 100) return null;
   const pace = Math.round((state.movingMs / 1000) / (state.distanceMeters / 1000));
   return pace >= 60 && pace <= 7200 ? pace : null;

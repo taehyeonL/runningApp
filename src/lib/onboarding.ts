@@ -1,12 +1,18 @@
 import type { Session } from '@supabase/supabase-js';
+import { saveMatchPreferences, type MatchPreferences } from '../features/account/match-preferences';
 
 import { POLICY_VERSION } from './policy';
 import { supabase } from './supabase';
 
 export type OnboardingInput = {
+  matchPreferences: MatchPreferences;
+  nickname: string;
   intent: '친구' | '러닝 메이트' | '연애 가능' | '상관없음';
   runningStyle: string;
   visibility: '비공개' | '친구 공개' | '프로필 공개' | '매칭 공개';
+  trainingGoal: 'first_5k' | 'habit' | 'faster_5k' | 'ten_k';
+  usualPaceSeconds: number;
+  availabilitySlots: Array<'weekday_morning' | 'weekday_evening' | 'weekend_morning'>;
 };
 
 const visibilityValues = {
@@ -28,7 +34,7 @@ const styleValues: Record<string, string> = {
   '초보 환영': 'beginner_friendly',
 };
 
-function nicknameFromSession(session: Session) {
+function fallbackNicknameFromSession(session: Session) {
   const metadata = session.user.user_metadata ?? {};
   const candidate = [metadata.preferred_username, metadata.name, metadata.full_name]
     .find((value) => typeof value === 'string' && value.trim().length >= 2) as string | undefined;
@@ -44,12 +50,13 @@ export async function saveOnboarding(session: Session, input: OnboardingInput) {
   if (!supabase) throw new Error('Supabase 환경변수가 설정되지 않았습니다.');
 
   const profile = {
-    nickname: nicknameFromSession(session),
+    nickname: input.nickname.trim() || fallbackNicknameFromSession(session),
     relationship_intents: [intentValues[input.intent]],
     running_style_tags: [styleValues[input.runningStyle] ?? 'consistency_first'],
     profile_visibility: visibilityValues[input.visibility],
     log_default_visibility: 'private',
-    discovery_enabled: input.visibility !== '비공개',
+    // Keep discovery closed until all preferences and consents are saved.
+    discovery_enabled: false,
   };
   const existing = await supabase
     .from('profiles')
@@ -63,6 +70,15 @@ export async function saveOnboarding(session: Session, input: OnboardingInput) {
     : await supabase.from('profiles').insert({ id: session.user.id, ...profile });
   if (saved.error) throw saved.error;
 
+  await saveMatchPreferences(input.matchPreferences);
+
+  const { error: preferenceError } = await supabase.rpc('set_runner_preferences', {
+    p_training_goal: input.trainingGoal,
+    p_usual_pace_seconds: input.usualPaceSeconds,
+    p_availability_slots: input.availabilitySlots,
+  });
+  if (preferenceError) throw preferenceError;
+
   // These are product consent records. OS location permission is requested
   // separately at the moment a run begins.
   for (const consentType of ['adult_confirmation', 'terms', 'privacy', 'location']) {
@@ -73,6 +89,10 @@ export async function saveOnboarding(session: Session, input: OnboardingInput) {
     });
     if (error) throw error;
   }
+  const { error: discoveryError } = await supabase.from('profiles')
+    .update({ discovery_enabled: input.visibility !== '비공개' })
+    .eq('id', session.user.id);
+  if (discoveryError) throw discoveryError;
 }
 
 export async function hasCompletedOnboarding(userId: string) {

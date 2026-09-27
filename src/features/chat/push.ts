@@ -2,6 +2,9 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { supabase } from '../../lib/supabase';
+import { authStorage } from '../../lib/auth-storage';
+
+const deviceTokenKey = 'message-push-device-token';
 
 // expo-notifications는 최상위에서 import하지 않는다. Expo Go(SDK 53+)에서는
 // 이 모듈을 불러오는 것만으로 원격 푸시 미지원 예외를 던지는데, 그러면 아래의
@@ -43,7 +46,7 @@ function requireClient() {
   return supabase;
 }
 
-export async function registerForMessagePush(): Promise<PushRegistration> {
+export async function registerForMessagePush(requestPermission = true): Promise<PushRegistration> {
   // 웹에서는 별도의 푸시 설정이 필요하고, Expo Go는 SDK 53부터 원격 푸시를
   // 지원하지 않는다. 두 경우 모두 조용히 실패하지 않고 이유를 돌려준다.
   if (Platform.OS === 'web') {
@@ -66,15 +69,7 @@ export async function registerForMessagePush(): Promise<PushRegistration> {
 
   const notifications = await loadNotifications();
 
-  const existing = await notifications.getPermissionsAsync();
-  const permission = existing.granted
-    ? existing
-    : await notifications.requestPermissionsAsync({
-      ios: { allowAlert: true, allowBadge: true, allowSound: true },
-    });
-  if (!permission.granted) return { status: 'denied' };
-
-  // Android 8.0부터 모든 알림은 채널에 속해야 한다.
+  // Android 13 권한 요청 전에 채널이 존재해야 한다.
   if (Platform.OS === 'android') {
     await notifications.setNotificationChannelAsync('messages', {
       name: '메시지 알림',
@@ -82,17 +77,38 @@ export async function registerForMessagePush(): Promise<PushRegistration> {
     });
   }
 
+  const existing = await notifications.getPermissionsAsync();
+  const permission = existing.granted
+    ? existing
+    : requestPermission ? await notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+    }) : existing;
+  if (!permission.granted) return { status: 'denied' };
+
   const token = await notifications.getExpoPushTokenAsync({ projectId: id });
-  await requireClient().rpc('register_push_token', {
+  const previous = await authStorage.getItem(deviceTokenKey);
+  if (previous && previous !== token.data) await unregisterMessagePush(previous);
+  // Keep enough device-local state to revoke after an app restart. Save before
+  // registration so a killed app cannot leave a registered token it cannot find.
+  await authStorage.setItem(deviceTokenKey, token.data);
+  const { error } = await requireClient().rpc('register_push_token', {
     p_token: token.data,
     p_platform: Platform.OS === 'ios' ? 'ios' : 'android',
   });
+  if (error) throw error;
 
   return { status: 'registered', token: token.data };
 }
 
-// 로그아웃한 기기로 알림이 계속 가지 않도록 토큰을 지운다. 실패해도 로그아웃
-// 자체를 막지는 않는다.
+// 실패를 호출자에게 전달한다. 해제되지 않은 상태를 성공으로 표시하지 않는다.
 export async function unregisterMessagePush(token: string) {
-  await requireClient().rpc('unregister_push_token', { p_token: token });
+  const { error } = await requireClient().rpc('unregister_push_token', { p_token: token });
+  if (error) throw error;
+}
+
+export async function unregisterThisDevicePush(fallbackToken: string | null) {
+  const token = await authStorage.getItem(deviceTokenKey) ?? fallbackToken;
+  if (!token) return;
+  await unregisterMessagePush(token);
+  await authStorage.removeItem(deviceTokenKey);
 }

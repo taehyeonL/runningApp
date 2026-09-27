@@ -5,23 +5,39 @@ import type { RunListItem } from '../running/run-types';
 export type LogVisibility = RunListItem['visibility'];
 
 export type PrivacyStatus = {
+  nickname: string;
+  nicknameChangeAvailableAt: string | null;
   discoveryEnabled: boolean;
   profileVisibility: LogVisibility;
   logDefaultVisibility: LogVisibility;
+  ageVerificationComplete: boolean;
   locationConsentGranted: boolean;
   marketingConsentGranted: boolean;
   deletionRequestedAt: string | null;
   deletionPurgeAfter: string | null;
+  trainingGoal: string;
+  usualPaceSeconds: number | null;
+  availabilitySlots: string[];
+  primaryAchievement: string;
+  achievementCodes: string[];
 };
 
 type PrivacyStatusRow = {
+  nickname: string;
+  nickname_change_available_at: string | null;
   discovery_enabled: boolean;
   profile_visibility: LogVisibility;
   log_default_visibility: LogVisibility;
+  age_verification_complete: boolean;
   location_consent_granted: boolean;
   marketing_consent_granted: boolean;
   deletion_requested_at: string | null;
   deletion_purge_after: string | null;
+  training_goal: string;
+  usual_pace_seconds: number | null;
+  availability_slots: unknown;
+  primary_achievement: string | null;
+  achievement_codes: unknown;
 };
 
 function requireClient() {
@@ -32,21 +48,35 @@ function requireClient() {
 export async function fetchPrivacyStatus(): Promise<PrivacyStatus | null> {
   const { data, error } = await requireClient()
     .from('my_privacy_status')
-    .select('discovery_enabled,profile_visibility,log_default_visibility,location_consent_granted,marketing_consent_granted,deletion_requested_at,deletion_purge_after')
+    .select('nickname,nickname_change_available_at,discovery_enabled,profile_visibility,log_default_visibility,training_goal,usual_pace_seconds,availability_slots,primary_achievement,achievement_codes,age_verification_complete,location_consent_granted,marketing_consent_granted,deletion_requested_at,deletion_purge_after')
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
   const row = data as PrivacyStatusRow;
   return {
+    nickname: row.nickname,
+    nicknameChangeAvailableAt: row.nickname_change_available_at,
     discoveryEnabled: row.discovery_enabled,
     profileVisibility: row.profile_visibility,
     logDefaultVisibility: row.log_default_visibility,
+    ageVerificationComplete: row.age_verification_complete,
     locationConsentGranted: row.location_consent_granted,
     marketingConsentGranted: row.marketing_consent_granted,
     deletionRequestedAt: row.deletion_requested_at,
     deletionPurgeAfter: row.deletion_purge_after,
+    trainingGoal: row.training_goal,
+    usualPaceSeconds: row.usual_pace_seconds,
+    availabilitySlots: Array.isArray(row.availability_slots) ? row.availability_slots.filter((value): value is string => typeof value === 'string') : [],
+    primaryAchievement: row.primary_achievement ?? 'beginner',
+    achievementCodes: Array.isArray(row.achievement_codes) ? row.achievement_codes.filter((value): value is string => typeof value === 'string') : [],
   };
+}
+
+export async function setNickname(nickname: string) {
+  const { data, error } = await requireClient().rpc('set_nickname', { p_nickname: nickname });
+  if (error) throw error;
+  return data as string;
 }
 
 export async function setRunVisibility(sessionId: string, visibility: LogVisibility) {

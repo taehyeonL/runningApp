@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import {
   fetchSocialSnapshot,
+  completeRunSafetyCheckin,
+  prepareRunSafetyCheckin,
   sendConnectionRequest,
   transitionConnectionRequest,
 } from '../features/social/social-api';
@@ -35,6 +37,8 @@ export function useSocial(userId?: string) {
       return;
     }
     setIsLoading(true);
+    setCandidates([]);
+    setRequests([]);
     setError(null);
     try {
       const snapshot = await fetchSocialSnapshot(userId);
@@ -83,6 +87,21 @@ export function useSocial(userId?: string) {
     }
   }, [refresh]);
 
+  const safetyCheckin = useCallback(async (requestId: string, checkin?: { id: string; status: 'prepared' | 'completed' } | null) => {
+    setActionRequestId(requestId);
+    setError(null);
+    try {
+      if (checkin?.status === 'prepared') await completeRunSafetyCheckin(checkin.id);
+      else await prepareRunSafetyCheckin(requestId);
+      await refresh();
+    } catch (reason) {
+      setError(socialErrorMessage(reason));
+      throw reason;
+    } finally {
+      setActionRequestId(null);
+    }
+  }, [refresh]);
+
   return {
     candidates,
     requests,
@@ -94,6 +113,7 @@ export function useSocial(userId?: string) {
     accept: (requestId: string) => transition(requestId, 'accept'),
     decline: (requestId: string) => transition(requestId, 'decline'),
     cancel: (requestId: string) => transition(requestId, 'cancel'),
+    safetyCheckin,
   };
 }
 

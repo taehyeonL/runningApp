@@ -1,0 +1,16 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select no_plan();
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000271', 'nickname@example.test');
+insert into public.profiles (id, nickname) values ('00000000-0000-0000-0000-000000000271', '처음닉');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000271', true);
+set local role authenticated;
+select is((select nickname from public.my_privacy_status), '처음닉', 'the account status exposes only the owner nickname');
+select isnt(public.set_nickname('가나다라마바사아'), null, 'an eight-syllable Korean nickname can be changed once');
+select ok((select nickname_change_available_at > now() from public.my_privacy_status), 'the account status exposes the server-calculated cooldown end');
+select throws_ok($$ select public.set_nickname('runner') $$, '22023', 'Nickname must be 2 to 8 Korean characters', 'the RPC rejects non-Korean nicknames before the cooldown check');
+select throws_ok($$ select public.set_nickname('또바꿈') $$, '42501', 'Nickname can be changed once every 6 months', 'the cooldown cannot be bypassed');
+reset role;
+select ok(not has_column_privilege('authenticated', 'public.profiles', 'nickname', 'UPDATE'), 'clients cannot update nickname directly');
+select * from finish();
+rollback;

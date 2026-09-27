@@ -83,7 +83,7 @@ export function useRunRecorder(userId?: string) {
 
   useEffect(() => {
     if (!userId) return;
-    void restoreRunTracking(userId).catch((reason) => setError(String(reason)));
+    void restoreRunTracking(userId).catch((reason) => setError(errorMessage(reason, '진행 중인 러닝을 복원하지 못했어요. 다시 앱을 열어 확인해 주세요.')));
   }, [userId]);
 
   useEffect(() => {

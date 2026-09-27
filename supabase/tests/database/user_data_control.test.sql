@@ -68,8 +68,8 @@ values
 
 insert into public.profiles (id, nickname, birth_year, age_verified_at, discovery_enabled, profile_visibility)
 values
-  ('00000000-0000-0000-0000-000000000201', '통제A', 1990, now(), true, 'matching'),
-  ('00000000-0000-0000-0000-000000000202', '통제B', 1991, now(), true, 'matching');
+  ('00000000-0000-0000-0000-000000000201', '통제가', 1990, now(), true, 'matching'),
+  ('00000000-0000-0000-0000-000000000202', '통제나', 1991, now(), true, 'matching');
 
 -- captured_at은 트랜잭션 시각 now()로 고정되므로, 동의와 철회를 한 트랜잭션에서
 -- 만들면 has_current_consent의 정렬이 두 행 사이에서 갈린다. 실제 서비스처럼

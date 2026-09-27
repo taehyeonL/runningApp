@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <!-- 워치 단독 기록은 활성 HKWorkoutSession 없이는 화면이 꺼진 뒤 좌표를
+       받지 못한다. 운동 세션을 여는 데만 쓰고 건강 데이터는 읽지 않는다. -->
+  <key>com.apple.developer.healthkit</key><true/>
+  <key>com.apple.developer.healthkit.access</key><array/>
+</dict></plist>

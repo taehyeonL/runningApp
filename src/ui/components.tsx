@@ -2,6 +2,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   Pressable,
+  Platform,
+  StatusBar as NativeStatusBar,
   SafeAreaView,
   ScrollView,
   Switch,
@@ -16,6 +18,8 @@ import {
   firstMeetingGuideTitle,
 } from '../features/safety/safety-guide';
 import type { DiscoveryCandidate } from '../features/social/social-types';
+import { achievementInfo } from '../features/running/runner-achievements';
+import { runnerCardPresentation } from '../features/social/runner-card-presentation';
 import type { MainTab, Screen } from '../navigation/routes';
 import { styles } from './styles';
 
@@ -34,10 +38,10 @@ export function AppShell({
   onNavigate: (screen: Screen) => void;
 }>) {
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, Platform.OS === 'android' && { paddingTop: NativeStatusBar.currentHeight ?? 0, paddingBottom: 16 }]}>
       <StatusBar style="dark" />
       {scrollable ? (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView key={screen} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {children}
         </ScrollView>
       ) : (
@@ -58,23 +62,46 @@ function BottomNavigation({
   onNavigate: (screen: MainTab) => void;
 }) {
   const items: Array<{ screen: MainTab; icon: string; label: string }> = [
-    { screen: 'home', icon: '⌂', label: '홈' },
-    { screen: 'discover', icon: '◌', label: '발견' },
-    { screen: 'profile', icon: '◎', label: '프로필' },
+    { screen: 'home', icon: 'home', label: '홈' },
+    { screen: 'discover', icon: 'discover', label: '발견' },
+    { screen: 'friends', icon: 'friends', label: '친구' },
+    { screen: 'profile', icon: 'profile', label: '프로필' },
   ];
   return (
     <View style={styles.navBar}>
       {items.map((item) => {
         const selected = activeScreen === item.screen;
         return (
-          <Pressable key={item.screen} onPress={() => onNavigate(item.screen)} style={styles.navItem}>
-            <Text style={[styles.navIcon, selected && styles.navSelected]}>{item.icon}</Text>
+          <Pressable key={item.screen} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{ selected }} onPress={() => onNavigate(item.screen)} style={styles.navItem}>
+            <NavigationGlyph name={item.screen} selected={selected} />
             <Text style={[styles.navText, selected && styles.navSelected]}>{item.label}</Text>
           </Pressable>
         );
       })}
     </View>
   );
+}
+
+// Dependency-free outline icons; labels remain the accessible tab names.
+function NavigationGlyph({ name, selected }: { name: MainTab; selected: boolean }) {
+  const color = selected ? '#202A24' : '#717A72';
+  const stroke = { borderColor: color, borderWidth: 1.7 };
+  return <View accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.navGlyph}>
+    {name === 'home' ? <>
+      <View style={[stroke, { position: 'absolute', top: 3, width: 14, height: 14, transform: [{ rotate: '45deg' }], borderBottomWidth: 0, borderRightWidth: 0 }]} />
+      <View style={[stroke, { position: 'absolute', bottom: 1, width: 16, height: 13, borderTopWidth: 0, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 }]} />
+    </> : name === 'discover' ? <>
+      <View style={[stroke, { width: 21, height: 21, borderRadius: 11 }]} />
+      <View style={{ position: 'absolute', width: 5, height: 12, borderRadius: 2, backgroundColor: color, transform: [{ rotate: '35deg' }] }} />
+    </> : <>
+      <View style={[stroke, { position: 'absolute', top: 1, left: name === 'friends' ? 2 : 8, width: 8, height: 8, borderRadius: 4 }]} />
+      <View style={[stroke, { position: 'absolute', bottom: 1, left: name === 'friends' ? 0 : 4, width: 16, height: 10, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomWidth: 0 }]} />
+      {name === 'friends' ? <>
+        <View style={[stroke, { position: 'absolute', top: 3, right: 0, width: 7, height: 7, borderRadius: 4 }]} />
+        <View style={[stroke, { position: 'absolute', bottom: 1, right: 0, width: 7, height: 10, borderTopRightRadius: 8, borderBottomWidth: 0, borderLeftWidth: 0 }]} />
+      </> : null}
+    </>}
+  </View>;
 }
 
 export function SocialButton({ label, symbol, dark, yellow, disabled, onPress }: {
@@ -109,9 +136,11 @@ export function PrimaryButton({ label, onPress, disabled = false }: {
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.primaryButton, disabled && styles.buttonDisabled]}
+      style={({ pressed }) => [styles.primaryButton, (disabled || pressed) && styles.buttonDisabled]}
     >
       <Text style={styles.primaryText}>{label}</Text>
     </Pressable>
@@ -200,7 +229,7 @@ export function Metric({ label, value, unit, dark }: {
   return (
     <View>
       <Text style={[styles.metricValue, dark && styles.metricDark]}>
-        {value}<Text style={styles.metricUnit}>{unit}</Text>
+        {value}<Text style={[styles.metricUnit, dark && styles.metricDarkLabel]}>{unit}</Text>
       </Text>
       <Text style={[styles.metricLabel, dark && styles.metricDarkLabel]}>{label}</Text>
     </View>
@@ -271,52 +300,51 @@ const similarityLabels: Record<DiscoveryCandidate['similarityLabel'], string> = 
   quite_good_match: '꽤 잘 맞음',
   new_rhythm: '새로운 리듬',
 };
-const tagLabels: Record<string, string> = {
-  consistency_first: '기록보다 꾸준함',
-  quiet_focus: '러닝 집중',
-  weekend_runner: '주말 러너',
-  beginner_friendly: '초보 환영',
-  friends: '친구',
-  running_mate: '러닝 메이트',
-  dating_open: '연애 가능',
-  no_preference: '상관없음',
-};
-
-export function RunnerCard({ candidate, expanded = false, onPress }: {
+export function RunnerCard({ candidate, expanded = false, onPress, viewerAvailabilitySlots = [] }: {
   candidate: DiscoveryCandidate;
   expanded?: boolean;
   onPress?: () => void;
+  viewerAvailabilitySlots?: string[];
 }) {
-  const tags = [...candidate.profile.runningStyleTags, ...candidate.profile.relationshipIntents]
-    .slice(0, 3)
-    .map((tag) => tagLabels[tag] ?? tag);
+  const presentation = runnerCardPresentation(candidate, viewerAvailabilitySlots);
+  const title = achievementInfo(candidate.profile.primaryAchievement);
   const body = (
     <Card>
       <View style={styles.runnerTop}>
-        <View style={styles.blurAvatar}><Text style={styles.blurText}>●</Text></View>
+        <View style={styles.blurAvatar}><Text style={styles.emptySymbol}>{title.icon}</Text></View>
         <View style={styles.runnerInfo}>
           <Text style={styles.listTitle}>{candidate.profile.nickname}</Text>
-          <Text style={styles.caption}>{candidate.profile.ageBand ?? '연령대 비공개'} · 블러 프로필 · 완료 {candidate.profile.completedRunCount}회</Text>
-          <View style={styles.tagRow}>{tags.map((tag) => <Tag key={tag} label={tag} />)}</View>
+          <Text style={styles.caption}>{candidate.profile.ageBand ?? '연령대 비공개'}</Text>
         </View>
-        <Text style={styles.compatibility}>{similarityLabels[candidate.similarityLabel]}</Text>
       </View>
-      <View style={styles.runnerLine} />
-      <Text style={styles.matchTitle}>{candidate.safeOverlapSummary ?? candidate.reasons[0] ?? '러닝 리듬이 비슷해요'}</Text>
-      <Text style={styles.cardText}>
-        최근 한 달 유효한 반복 교차 <Text style={styles.bold}>{candidate.repeatEncounters30d}회</Text> · 정확한 장소와 시각은 표시하지 않아요.
-      </Text>
+      <View style={styles.mateHighlight}>
+        <Text style={styles.cardEyebrow}>{presentation.commonActivity ? '우리의 공통 리듬' : '함께 달리기 전, 알아볼까요'}</Text>
+        <Text style={styles.mateHeadline}>{presentation.headline}</Text>
+        <Text style={styles.caption}>러닝 궁합 · {similarityLabels[candidate.similarityLabel]}</Text>
+      </View>
+      <View style={styles.mateFacts}>
+        <View style={styles.mateFact}><Text style={styles.caption}>페이스 범위</Text><Text style={styles.listTitle}>{presentation.pace}</Text></View>
+        <View style={styles.mateFact}><Text style={styles.caption}>{presentation.commonActivity ? '나와 겹치는 활동 시간대' : '주로 달리는 시간대'}</Text><Text style={styles.listTitle}>{presentation.commonActivity ?? presentation.activity}</Text></View>
+      </View>
+      {presentation.styles.length ? <View style={styles.tagRow}>{presentation.styles.map((tag) => <Tag key={tag} label={tag} />)}</View> : null}
       {expanded ? (
         <>
-          <View style={styles.reasonList}>
-            {candidate.reasons.map((reason) => <Text key={reason} style={styles.reason}>• {reason}</Text>)}
-          </View>
-          <Text style={styles.cardCta}>{candidate.requestEligible ? '카드를 눌러 같이 뛰기 요청하기 →' : '반복 교차 5회부터 요청할 수 있어요'}</Text>
+          {presentation.reasons.length ? <View style={styles.reasonList}>{presentation.reasons.map((reason) => <Text key={reason} style={styles.cardText}>· {reason}</Text>)}</View> : null}
+          <View style={styles.runnerLine} />
+          {candidate.profile.bio ? <Text style={styles.cardText}>{candidate.profile.bio}</Text> : null}
+          {candidate.profile.conversationPreference === 'chatty' ? <Text style={styles.caption}>이야기하며 달려요</Text> : candidate.profile.conversationPreference === 'quiet' ? <Text style={styles.caption}>러닝에 집중해요</Text> : null}
+          {candidate.profile.preferredDistance && candidate.profile.preferredDistance !== 'any' ? <Text style={styles.caption}>편한 거리 · {candidate.profile.preferredDistance === 'short' ? '3km 안팎' : candidate.profile.preferredDistance === '5k' ? '5km 정도' : '10km 정도'}</Text> : null}
+          <Text style={styles.caption}>{title.title} · 완료 {candidate.profile.completedRunCount}회</Text>
+          {candidate.repeatEncounters30d > 0 ? <Text style={styles.caption}>최근 한 달, 러닝 리듬이 {candidate.repeatEncounters30d}회 겹쳤어요.</Text> : null}
+          {candidate.safeOverlapSummary ? <Text style={styles.caption}>{candidate.safeOverlapSummary}</Text> : null}
+          {presentation.intents.length ? <Text style={styles.caption}>기대하는 관계 · {presentation.intents.join(' · ')}</Text> : null}
+          <Text style={styles.cardCta}>{candidate.requestEligible ? '가볍게 같이 뛰자고 제안하기 →' : '리듬이 조금 더 쌓이면 요청이 열려요'}</Text>
+          <Text style={styles.caption}>정확한 장소와 시각은 서로에게 보이지 않아요.</Text>
         </>
       ) : null}
     </Card>
   );
-  return onPress ? <Pressable onPress={onPress}>{body}</Pressable> : body;
+  return onPress ? <Pressable accessibilityRole="button" accessibilityHint="같이 뛰기 요청 화면을 열어요" onPress={onPress}>{body}</Pressable> : body;
 }
 
 function Tag({ label }: { label: string }) {
